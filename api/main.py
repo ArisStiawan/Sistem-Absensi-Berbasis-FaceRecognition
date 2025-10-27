@@ -7,11 +7,28 @@ from datetime import datetime, timedelta
 import uvicorn
 import logging
 
-from database import AttendanceDB
-from models import User, UserInDB, Token, TokenData, AttendanceRecord, DeviceInfo
-from auth import authenticate_user, create_access_token, get_current_active_user
-import uvicorn
-import logging
+# Import API submodules. Use relative imports when the package is installed/imported
+# normally (e.g. run from project root as `uvicorn api.main:app`). If the module
+# is executed from inside the `api/` folder (for example `uvicorn main:app`),
+# relative imports raise "attempted relative import with no known parent package".
+# In that case catch the error, add the project root to sys.path and import the
+# modules using absolute package names so both invocation styles work.
+try:
+    from .database import AttendanceDB
+    from .models import User, UserInDB, Token, TokenData, AttendanceRecord, DeviceInfo
+    from .auth import authenticate_user, create_access_token, get_current_active_user
+except Exception:
+    import sys
+    import os
+    # Insert the project root (parent of this api folder) into sys.path so
+    # absolute imports like `import api.database` will succeed when running
+    # from inside the api directory.
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+    from api.database import AttendanceDB
+    from api.models import User, UserInDB, Token, TokenData, AttendanceRecord, DeviceInfo
+    from api.auth import authenticate_user, create_access_token, get_current_active_user
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

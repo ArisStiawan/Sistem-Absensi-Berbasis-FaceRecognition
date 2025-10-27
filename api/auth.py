@@ -3,8 +3,8 @@ from typing import Optional
 from fastapi import HTTPException
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from database import AttendanceDB
-from models import UserInDB, TokenData
+from .database import AttendanceDB
+from .models import UserInDB, TokenData
 
 # Configuration
 SECRET_KEY = "your-secret-key-here"  # Change this in production!

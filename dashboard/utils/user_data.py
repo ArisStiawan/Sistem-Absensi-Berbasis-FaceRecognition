@@ -176,23 +176,23 @@ def delete_user_completely(username: str) -> tuple[bool, str]:
         return False, f"Unexpected error: {e}"
 
 def get_user_data():
-    """Get user data from json file"""
-    # First try root directory
-    root_data = Path(__file__).parent.parent / "user_data.json"
-    if root_data.exists():
-        try:
-            with open(root_data, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"Error reading root user data: {e}")
-    
-    # Then try dashboard directory
-    dashboard_data = Path(__file__).parent / "user_data.json"
-    if dashboard_data.exists():
-        try:
-            with open(dashboard_data, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"Error reading dashboard user data: {e}")
-    
-    return {}
+    """Get user data from json file.
+    Looks in both project root and dashboard folder and merges, preferring root entries."""
+    data = {}
+    candidates = [
+        # Project root: .../Simslife_FaceRecognition/user_data.json
+        Path(__file__).parent.parent.parent / "user_data.json",
+        # Dashboard folder: .../dashboard/user_data.json
+        Path(__file__).parent.parent / "user_data.json",
+    ]
+    for path in candidates:
+        if path.exists():
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    loaded = json.load(f) or {}
+                    # Root entries should override dashboard ones by iteration order
+                    data.update(loaded)
+            except Exception as e:
+                print(f"Error reading user data at {path}: {e}")
+                continue
+    return data

@@ -83,7 +83,7 @@ def detect_face_orientation(landmarks, image_shape):
         return "center"
 
 
-def Intial_data_capture(name=None, camera_id=None):
+def Intial_data_capture(name=None, camera_id=None, run_main=True):
     """
     Capture reference images with orientation + blink verification
     Args:
@@ -424,41 +424,45 @@ def Intial_data_capture(name=None, camera_id=None):
             return False
     else:
         try:
-            # Automatically run main.py after successful capture
-            print("\nStarting attendance system...")
-            
-            # Get the directory where initial_data_capture.py is located
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            main_py_path = os.path.join(script_dir, "main.py")
-            
-            if os.path.exists(main_py_path):
-                # Use a different method to start main.py
-                try:
-                    # Try using subprocess.Popen
-                    subprocess.Popen([sys.executable, main_py_path])
-                except Exception as e:
-                    print(f"Failed to start main.py with Popen: {e}")
+            # Optionally run main.py after successful capture
+            if run_main:
+                print("\nStarting attendance system...")
+                # Get the directory where initial_data_capture.py is located
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                main_py_path = os.path.join(script_dir, "main.py")
+                if os.path.exists(main_py_path):
                     try:
-                        # Fallback to subprocess.run
-                        subprocess.run([sys.executable, main_py_path], check=False)
+                        subprocess.Popen([sys.executable, main_py_path])
                     except Exception as e:
-                        print(f"Failed to start main.py with run: {e}")
-                        print("Please run main.py manually")
+                        print(f"Failed to start main.py with Popen: {e}")
+                        try:
+                            subprocess.run([sys.executable, main_py_path], check=False)
+                        except Exception as e:
+                            print(f"Failed to start main.py with run: {e}")
+                            print("Please run main.py manually")
+                else:
+                    print(f"Warning: Could not find main.py in {script_dir}")
+                    print("Please run main.py manually")
             else:
-                print(f"Warning: Could not find main.py in {script_dir}")
-                print("Please run main.py manually")
+                print("\nRegistration completed. Not starting attendance (per configuration).")
             return True
         except Exception as e:
-            print(f"Error starting main.py: {e}")
-            return True  # Still return True as images were captured successfully
+            print(f"Post-registration step error: {e}")
+            return True  # Images were captured successfully
 
 if __name__ == "__main__":
     import sys
     import os
     import shutil
-    
-    if len(sys.argv) > 1:
-        name = sys.argv[1]
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Initial data capture for user registration")
+    parser.add_argument("name", nargs="?", help="Name to register")
+    parser.add_argument("--no-run-main", dest="run_main", action="store_false", help="Do not start attendance after registration")
+    args = parser.parse_args()
+
+    if args.name:
+        name = args.name
     else:
         # Ask for name interactively if not provided as argument
         while True:
@@ -466,12 +470,12 @@ if __name__ == "__main__":
             if name:  # Check if name is not empty
                 break
             print("Name cannot be empty. Please try again.")
-    
+
     base_path = "Attendance_data"
     person_path = os.path.join(base_path, name)
-    
+
     try:
-        success = Intial_data_capture(name)
+        success = Intial_data_capture(name, run_main=args.run_main)
         if not success:
             # If registration was not successful, ensure cleanup
             if os.path.exists(person_path):

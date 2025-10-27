@@ -13,8 +13,6 @@ import io
 import logging
 
 logger = logging.getLogger(__name__)
-# Optional: at app start you can set logging level once, e.g. in app entrypoint:
-# logging.basicConfig(level=logging.INFO)
 
 def get_current_root_dir():
     """Get the root directory where main.py is located"""
@@ -113,12 +111,6 @@ def safe_read_attendance_csv(csv_path, verbose=False):
 def validate_attendance_dataframe(df):
     """
     Validate dan clean attendance dataframe
-    
-    Args:
-        df: DataFrame to validate
-        
-    Returns:
-        pd.DataFrame: Cleaned dataframe
     """
     if df is None or df.empty:
         return df
@@ -144,11 +136,7 @@ def validate_attendance_dataframe(df):
                 col_mapping[col] = 'Status'
         
         df = df.rename(columns=col_mapping)
-        
-        # Drop duplicate columns if any
         df = df.loc[:, ~df.columns.duplicated()]
-        
-        # Remove rows where all values are empty
         df = df.dropna(how='all')
         
         return df
@@ -181,7 +169,6 @@ def check_registration():
     if not attendance_dir.exists():
         return False
     
-    # Check for any user folders or files
     try:
         items = list(attendance_dir.iterdir())
         return len(items) > 0
@@ -189,203 +176,17 @@ def check_registration():
         return False
 
 def start_attendance(mode="checkin"):
-    """
-    This is a placeholder function to maintain compatibility with existing code.
-    The actual attendance is now handled directly within the Streamlit interface.
-    """
     return True
-
-def get_shift_status(recognized_name):
-    """
-    Get user's shift and attendance status
-    Returns: (assigned_shift, current_shift, status, is_checkout)
-    """
-    now = datetime.now()
-    current_hour = now.hour
-    
-    # Define shift times
-    morning_start = 8    # 08:00
-    morning_end = 17     # 17:00
-    night_start = 17     # 17:00
-    night_end = 22      # 22:00
-    
-    # Toleransi untuk shift malam yang datang lebih awal
-    night_early_start = 16  # Boleh datang 1 jam sebelum shift
-    
-    # Determine current shift
-    if morning_start <= current_hour < morning_end:
-        current_shift = "morning"
-    elif night_early_start <= current_hour <= night_end:  # Diperluas untuk toleransi
-        current_shift = "night"
-    else:
-        current_shift = "outside_hours"  # Di luar jam kerja
-    
-    # Get user's assigned shift from registration data
-    root_dir = get_current_root_dir()
-    try:
-        import json
-        with open(root_dir / "user_data.json", "r") as f:
-            user_data = json.load(f)
-            if recognized_name in user_data:
-                assigned_shift = user_data[recognized_name].get('shift', 'morning')
-            else:
-                assigned_shift = 'morning'  # default to morning if not found
-    except:
-        assigned_shift = 'morning'  # default to morning if file not found
-        
-    # Check if this is checkout time based on shift
-    is_checkout = False
-    if current_shift == "morning" and current_hour >= 16:  # Bisa checkout mulai 16:00
-        is_checkout = True
-    elif current_shift == "night" and current_hour >= 21:  # Bisa checkout mulai 21:00
-        is_checkout = True
-    
-    # Check if already checked in today
-    has_checked_in = False
-    try:
-        attendance_file = get_current_root_dir() / "Attendance_Entry" / f"Attendance_{now.strftime('%y_%m_%d')}.csv"
-        df = safe_read_attendance_csv(attendance_file)
-        if df is not None:
-            df = validate_attendance_dataframe(df)
-            if 'Name' in df.columns:
-                has_checked_in = recognized_name in df['Name'].values
-    except:
-        pass  # Assume not checked in if can't read file
-    
-    # Determine status based on time and check-in status
-    if current_shift == "outside_hours":
-        status = "outside_hours"  # Di luar jam kerja
-    elif is_checkout:
-        if not has_checked_in:
-            status = "no_checkin"  # Trying to checkout without checkin
-        else:
-            status = "checkout"
-    else:
-        # For check-in
-        if has_checked_in:
-            status = "already_checkedin"
-        else:
-            # Cek kesesuaian shift
-            shift_match = assigned_shift == current_shift
-            
-            if current_shift == "morning" and assigned_shift == "night":
-                status = "wrong_shift"  # User shift malam mencoba absen di pagi hari
-            elif current_shift == "night" and assigned_shift == "morning":
-                # Toleransi khusus untuk shift pagi yang lembur/overlap ke shift malam
-                if current_hour < night_start:  # Sebelum jam 17:00
-                    status = "overtime_checkin"
-                else:
-                    status = "wrong_shift"
-            else:
-                # Normal check-in sesuai shift
-                if current_shift == "morning":
-                    status = "on_time" if current_hour <= 8 else "late"
-                else:  # night shift
-                    # Toleransi untuk shift malam yang datang lebih awal
-                    status = "on_time" if current_hour <= 17 else "late"
-        
-    return assigned_shift, current_shift, status, is_checkout
-
-def process_recognized_face(recognized_name):
-    """
-    Process a recognized face and record attendance
-    
-    Args:
-        recognized_name: Name of the recognized person
-        
-    Returns:
-        str: Status message to display
-    """
-    try:
-        # Get shift status
-        assigned_shift, current_shift, status, is_checkout = get_shift_status(recognized_name)
-        
-        # Record attendance
-        now = datetime.now()
-        attendance_file = get_current_root_dir() / "Attendance_Entry" / f"Attendance_{now.strftime('%y_%m_%d')}.csv"
-        
-        # Ensure directory exists
-        attendance_file.parent.mkdir(exist_ok=True)
-        
-        # Create or append to CSV dengan struktur yang konsisten
-        file_exists = attendance_file.exists()
-        with open(attendance_file, 'a', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            if not file_exists:
-                writer.writerow(["Name", "Time", "Date", "Shift", "Status"])
-            writer.writerow([
-                recognized_name,
-                now.strftime('%H:%M:%S'),
-                now.strftime('%Y-%m-%d'),
-                current_shift,
-                status
-            ])
-        
-        # Prepare status message based on attendance type and status
-        message = ""
-        if status == "outside_hours":
-            message = f"❌ Di luar jam kerja!\nNama: {recognized_name}\n\nJam kerja:\nShift Pagi: 08:00 - 17:00\nShift Malam: 17:00 - 22:00"
-        elif status == "wrong_shift":
-            message = (f"⚠️ Ketidaksesuaian Shift!\n"
-                     f"Nama: {recognized_name}\n"
-                     f"Anda terdaftar di shift {assigned_shift.upper()}\n"
-                     f"Jam kerja Anda:\n"
-                     f"{'08:00 - 17:00' if assigned_shift == 'morning' else '17:00 - 22:00'}")
-        elif status == "overtime_checkin":
-            message = (f"⚠️ Perhatian - Overtime Check-in\n"
-                     f"Nama: {recognized_name}\n"
-                     f"Anda melakukan check-in di luar shift normal Anda (Shift {assigned_shift.upper()})\n"
-                     f"Absensi akan dicatat sebagai overtime/lembur.")
-            try:
-                sound.play_sound('notification')
-            except:
-                pass
-        elif status == "no_checkin":
-            message = f"❌ Tidak dapat melakukan checkout!\nNama: {recognized_name}\nAnda belum melakukan check-in hari ini."
-        elif status == "already_checkedin":
-            message = f"⚠️ Sudah absen masuk!\nNama: {recognized_name}\nSilakan lakukan checkout di jam pulang."
-        elif status == "checkout":
-            message = f"✅ Checkout berhasil!\nNama: {recognized_name}\nTerima kasih atas kerja kerasnya hari ini!"
-            try:
-                sound.play_sound('success')
-            except:
-                pass
-        else:
-            time_status = "tepat waktu" if status == "on_time" else "terlambat"
-            shift_info = ""
-            if assigned_shift != current_shift and status != "overtime_checkin":
-                shift_info = f"\n⚠️ Anda terdaftar di shift {assigned_shift} tapi melakukan absensi di shift {current_shift}"
-            
-            batas_telat = "08:00" if current_shift == "morning" else "17:00"
-            message = f"✅ Check-in berhasil!\nNama: {recognized_name}\nStatus: {time_status} (Batas: {batas_telat}){shift_info}"
-            if status == "on_time":
-                try:
-                    sound.play_sound('success')
-                except:
-                    pass
-            else:
-                try:
-                    sound.play_sound('notification')
-                except:
-                    pass
-                
-        return message
-    except Exception as e:
-        print(f"Error in process_recognized_face: {e}")
-        traceback.print_exc()
-        return f"❌ Error: {str(e)}"
 
 def show_attendance():
     """Show attendance capture page"""
     st.header("✅ Face Recognition Attendance")
     
-    # Helper to manage external attendance window (main.py)
     def _start_external_attendance():
         root = get_current_root_dir()
         if 'attendance_proc' in st.session_state and st.session_state['attendance_proc'] is not None:
             return False, "Attendance window is already running"
         try:
-            # Launch main.py in a separate process so it can open its own OpenCV window
             proc = subprocess.Popen([sys.executable, str(root / "main.py")], cwd=str(root))
             st.session_state['attendance_proc'] = proc
             return True, "Started external attendance window (OpenCV)"
@@ -397,7 +198,6 @@ def show_attendance():
         if proc is None:
             return False, "No attendance window process to stop"
         try:
-            # Try graceful termination first
             proc.terminate()
             try:
                 proc.wait(timeout=3)
@@ -408,7 +208,6 @@ def show_attendance():
         except Exception as e:
             return False, f"Failed to stop attendance window: {e}"
     
-    # Check if users are registered
     if not check_registration():
         st.warning("⚠️ Belum ada user yang terdaftar. Silakan registrasi user terlebih dahulu di menu Register New User.")
         if st.button("Ke Halaman Registrasi", type="primary"):
@@ -416,12 +215,9 @@ def show_attendance():
             st.rerun()
         return
     
-    # Create tabs for attendance actions and history
     tab1, tab2 = st.tabs(["Absensi", "Riwayat Absensi"])
     
     with tab1:
-
-        # Process status
         proc = st.session_state.get('attendance_proc')
         running = proc is not None and (proc.poll() is None)
         status_text = "Running" if running else "Stopped"
@@ -459,31 +255,24 @@ def show_attendance():
     
     with tab2:
         st.subheader("📊 Riwayat Absensi")
-        
-        # Date selector for attendance history
-        col1, col2 = st.columns([2,2])
+        col1, _ = st.columns([2,2])
         with col1:
             selected_date = st.date_input(
                 "Pilih Tanggal",
                 datetime.now()
             )
-        
-        # Format date for filename
         date_str = selected_date.strftime("%y_%m_%d")
         attendance_file = get_current_root_dir() / "Attendance_Entry" / f"Attendance_{date_str}.csv"
         
         if attendance_file.exists():
             try:
-                df = safe_read_attendance_csv(attendance_file)  # no verbose to keep terminal clean
+                df = safe_read_attendance_csv(attendance_file)
                 if df is None or df.empty:
                     st.info(f"Tidak ada data absensi untuk tanggal {selected_date.strftime('%d-%m-%Y')}")
                 else:
                     df = validate_attendance_dataframe(df)
-
-                    # Standarisasi kolom Time tanpa warning (ekstrak HH:MM:SS)
                     if 'Time' in df.columns:
                         df['Time'] = df['Time'].astype(str).str.extract(r'(\b\d{1,2}:\d{2}:\d{2}\b)')[0]
-
                     st.dataframe(
                         df,
                         column_config={
@@ -496,8 +285,6 @@ def show_attendance():
                         hide_index=True,
                         width='stretch'
                     )
-
-                    # Summary metrics
                     total_records = len(df)
                     if total_records > 0:
                         col1, col2, col3 = st.columns(3)
@@ -513,3 +300,22 @@ def show_attendance():
                 st.error(f"Error membaca data absensi: {str(e)}")
         else:
             st.info(f"Tidak ada data absensi untuk tanggal {selected_date.strftime('%d-%m-%Y')}")
+    
+    st.divider()
+    st.subheader("Riwayat Absensi Hari Ini")
+
+    try:
+        attendance_file = get_current_root_dir() / "Attendance_Entry" / f"Attendance_{datetime.now().strftime('%y_%m_%d')}.csv"
+        if attendance_file.exists():
+            df = safe_read_attendance_csv(attendance_file)
+            if df is not None and not df.empty:
+                df = validate_attendance_dataframe(df)
+                if 'Time' in df.columns:
+                    df['Time'] = df['Time'].astype(str).str.extract(r'(\b\d{1,2}:\d{2}:\d{2}\b)')[0]
+                st.dataframe(df, width='stretch')
+            else:
+                st.info("Belum ada absensi hari ini")
+        else:
+            st.info("Belum ada absensi hari ini")
+    except Exception as e:
+        st.error(f"Error membaca riwayat absensi: {str(e)}")

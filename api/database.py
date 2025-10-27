@@ -58,6 +58,50 @@ class AttendanceDB:
         
         conn.commit()
         conn.close()
+
+    def _safe_read_csv(self, csv_path):
+        """Try reading a CSV robustly. Attempts multiple parsers and separators,
+        skips bad lines, and normalizes columns to ['Name','Date','Time'].
+        Returns a DataFrame or None on failure.
+        """
+        try:
+            df = pd.read_csv(csv_path)
+        except Exception as e:
+            # Try a more permissive parser
+            try:
+                df = pd.read_csv(csv_path, engine='python', on_bad_lines='skip')
+            except Exception:
+                # Try common alternative separators
+                for sep in [';', '\t']:
+                    try:
+                        df = pd.read_csv(csv_path, sep=sep, engine='python', on_bad_lines='skip')
+                        break
+                    except Exception:
+                        df = None
+                if df is None:
+                    print(f"Error reading {csv_path}: {e}")
+                    return None
+
+        # Normalize column names: look for columns containing 'name','date','time'
+        cols_lower = {c.lower(): c for c in df.columns}
+        mapping = {}
+        for key in ['name', 'date', 'time']:
+            if key in cols_lower:
+                mapping[cols_lower[key]] = key.capitalize()
+            else:
+                # try fuzzy match
+                for c in df.columns:
+                    if key in c.lower():
+                        mapping[c] = key.capitalize()
+                        break
+
+        # Ensure required columns exist
+        if not all(k in mapping.values() for k in ['Name', 'Date', 'Time']):
+            print(f"CSV {csv_path} missing required columns. Found: {list(df.columns)}")
+            return None
+
+        df = df.rename(columns=mapping)
+        return df
         
     def validate_shift_time(self, check_time: time, employee_name: str) -> tuple[str, str]:
         """Validate check time and return shift and status based on employee's registered shift"""
@@ -201,17 +245,18 @@ class AttendanceDB:
                 date_str = date.strftime("%y_%m_%d")
                 csv_path = self.attendance_path / f'Attendance_{date_str}.csv'
                 if csv_path.exists():
-                    df = pd.read_csv(csv_path)
-                    for _, row in df.iterrows():
-                        records.append({
-                            "employee_name": row["Name"],
-                            "date": row["Date"],
-                            "check_in": row["Time"],
-                            "check_out": None,
-                            "shift": self.determine_shift(row["Time"]),
-                            "status": "legacy",
-                            "device_id": "legacy_device"
-                        })
+                    df = self._safe_read_csv(csv_path)
+                    if df is not None:
+                        for _, row in df.iterrows():
+                            records.append({
+                                "employee_name": row["Name"],
+                                "date": row["Date"],
+                                "check_in": row["Time"],
+                                "check_out": None,
+                                "shift": self.determine_shift(row["Time"]),
+                                "status": "legacy",
+                                "device_id": "legacy_device"
+                            })
 
             return records
         except Exception as e:
@@ -311,7 +356,10 @@ class AttendanceDB:
             if not records and self.attendance_path.exists():
                 for csv_file in self.attendance_path.glob("Attendance_*.csv"):
                     try:
-                        df = pd.read_csv(csv_file)
+                        df = self._safe_read_csv(csv_file)
+                        if df is None:
+                            print(f"Skipping malformed CSV: {csv_file}")
+                            continue
                         for _, row in df.iterrows():
                             records.append({
                                 "employee_name": row["Name"],

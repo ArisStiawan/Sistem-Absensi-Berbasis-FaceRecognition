@@ -60,17 +60,10 @@ initialize_face_recognition()
 # Import utility functions
 from pathlib import Path
 import json
-# Import from consolidated utils package
-from utils import (
-    delete_user_completely, 
-    get_user_data,
-    delete_user_image, 
-    get_user_images,
-    get_camera_feed,
-    analyze_face_image,
-    load_face_encodings,
-    get_orientation_instructions
-)
+from utils.user_data import delete_user_completely
+from utils.image_management import delete_user_image, get_user_images
+
+# Menghapus duplikat fungsi delete_user_completely karena sudah diimpor dari utils.user_data
 
 # Configure page and initial session state
 st.set_page_config(
@@ -177,7 +170,29 @@ def get_today_attendance():
         
         if today_file.exists():
             try:
-                df = pd.read_csv(today_file)
+                # Use python engine to tolerate variable number of fields per line
+                df = pd.read_csv(today_file, engine='python')
+            except Exception as e:
+                # Fallback: minimal manual parsing for Name, Time, Date
+                import csv as _csv
+                rows = []
+                with open(today_file, 'r', newline='') as _f:
+                    reader = _csv.reader(_f)
+                    header = next(reader, [])
+                    def _idx(col, default):
+                        return header.index(col) if col in header else default
+                    name_i = _idx('Name', 0)
+                    time_i = _idx('Time', 1)
+                    date_i = _idx('Date', 2)
+                    for r in reader:
+                        if not r:
+                            continue
+                        rows.append({
+                            'Name': r[name_i] if name_i < len(r) else None,
+                            'Time': r[time_i] if time_i < len(r) else None,
+                            'Date': r[date_i] if date_i < len(r) else None
+                        })
+                df = pd.DataFrame(rows)
                 if not df.empty:
                     # Check if we have the required columns
                     required_cols = {'Name', 'Time'}

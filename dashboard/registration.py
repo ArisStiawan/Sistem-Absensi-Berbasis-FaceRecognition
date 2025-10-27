@@ -77,18 +77,15 @@ def prepare_registration(user_data: dict) -> tuple[bool, str, None]:
         # Cek user exists
         if check_user_exists(user_data['name']):
             return False, f"❌ User dengan nama '{user_data['name']}' sudah terdaftar!", None
-            
-        # Make sure main Attendance_data directory exists
+
+        # Make sure main Attendance_data directory exists (do not pre-create user folder;
+        # initial_data_capture will create it to avoid name-exists conflict)
         attendance_dir = root_dir / "Attendance_data"
         attendance_dir.mkdir(exist_ok=True)
-        
-        # Create user directory
-        user_dir = attendance_dir / user_data['name']
-        user_dir.mkdir(exist_ok=True)
-        
+
         # Initialize registration state
         return True, "✅ Proses registrasi dimulai! Silakan ikuti instruksi selanjutnya.", None
-        
+
     except Exception as e:
         return False, f"❌ Error: {str(e)}", None
 
@@ -194,131 +191,104 @@ def render_registration_progress():
 
 def show_user_registration():
     """
-    Handle user registration process
+    Handle user registration process by launching initial_data_capture.py
+    in an external OpenCV window (like Attendance).
     """
-    # Import all necessary functions from utils package
-    from utils import get_camera_feed, capture_and_save_face, get_orientation_instructions
-    
     st.header("Register New User")
     st.write("Gunakan halaman ini untuk mendaftarkan user baru ke sistem face recognition.")
-    
-    reg_state = st.session_state.registration_state
-    
-    # Jika sedang dalam proses registrasi
-    if reg_state['is_registering']:
-        # Show registration instructions
-        render_registration_progress()
-        
-        # Create columns for layout
-        col1, col2 = st.columns([3, 1])
-        
+
+    # Initialize simple process state holders
+    if 'reg_process' not in st.session_state:
+        st.session_state.reg_process = None
+    if 'reg_user' not in st.session_state:
+        st.session_state.reg_user = None
+    if 'reg_started_at' not in st.session_state:
+        st.session_state.reg_started_at = None
+    if 'reg_last_result' not in st.session_state:
+        st.session_state.reg_last_result = None
+
+    # Show last completion status if any
+    if st.session_state.reg_last_result:
+        res = st.session_state.reg_last_result
+        ts = time.strftime('%H:%M:%S', time.localtime(res.get('timestamp', time.time())))
+        if res.get('status') == 'success':
+            st.success(f"✅ Registrasi untuk '{res.get('user','')}' selesai pada {ts}.")
+        else:
+            st.warning(f"ℹ️ Registrasi untuk '{res.get('user','')}' belum lengkap pada {ts}. Silakan coba lagi.")
+        if st.button("Tutup notifikasi", key="reg_close_notice"):
+            st.session_state.reg_last_result = None
+            st.rerun()
+
+    # If a registration process is running, show controls
+    if st.session_state.reg_process is not None:
+        proc = st.session_state.reg_process
+        code = proc.poll()
+        col1, col2, col3 = st.columns(3)
         with col1:
-            # Get camera feed
-            camera_image = get_camera_feed()
-            
-            # Show capture button based on current step
-            current_step = reg_state['current_step']
-            if camera_image is not None:
-                # Convert the image from bytes to OpenCV format
-                import cv2
-                import numpy as np
-                
-                bytes_data = camera_image.getvalue()
-                img_array = np.frombuffer(bytes_data, np.uint8)
-                image = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-                
-                # Determine pose based on current step
-                poses = ['center', 'left', 'right']
-                if current_step > 0 and current_step <= len(poses):
-                    pose = poses[current_step - 1]
-                    
-                    # Button to capture the current pose
-                    if st.button(f"Capture {pose.title()} Image", key=f"capture_{pose}"):
-                        # Get user folder path
-                        root_dir = Path(__file__).parent.parent
-                        user_folder = root_dir / "Attendance_data" / reg_state['user_data']['name']
-                        
-                        # Save captured image
-                        success = capture_and_save_face(image, user_folder, pose)
-                        
-                        if success:
-                            st.success(f"✅ {pose.title()} image captured successfully!")
-                            # Move to next step
-                            reg_state['current_step'] += 1
-                            
-                            # Check if registration is complete
-                            is_complete, _ = check_registration_complete()
-                            if is_complete:
-                                reg_state['current_step'] = 4  # Final step
-                                st.rerun()
-                            elif reg_state['current_step'] > 3:
-                                reg_state['current_step'] = 4  # Final step
-                                st.rerun()
-                        else:
-                            st.error(f"❌ Failed to capture {pose} image. Please try again.")
-        
+            st.metric("Status", "Running" if code is None else "Finished")
         with col2:
-            st.subheader("Instructions")
-            
-            # Display instructions based on current step
-            instruction = get_orientation_instructions(reg_state['current_step'] - 1)
-            st.info(instruction)
-            
-            # Option to cancel registration
-            if st.button("Cancel Registration", type="secondary"):
-                # Reset registration state
-                st.session_state.registration_state = {
-                    'is_registering': False,
-                    'current_step': 0,
-                    'user_data': None,
-                    'process': None,
-                    'error': None
-                }
+            st.metric("User", st.session_state.reg_user or "-")
+        with col3:
+            if st.session_state.reg_started_at:
+                elapsed = time.time() - st.session_state.reg_started_at
+                st.metric("Elapsed", f"{int(elapsed)}s")
+
+        if code is None:
+            if st.button("Stop Registration", type="secondary"):
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+                st.session_state.reg_process = None
                 st.rerun()
-        
-        # Check if registration is complete (all images captured)
-        if reg_state['current_step'] == 4:
-            is_complete, status = check_registration_complete()
-            if is_complete:
-                st.success(status)
-                # Reset form for next registration after delay
-                import time
-                time.sleep(1)  # Show success message briefly
-                st.session_state.registration_state = {
-                    'is_registering': False,
-                    'current_step': 0,
-                    'user_data': None,
-                    'process': None,
-                    'error': None
+        else:
+            # Process finished: check captured images
+            root_dir = Path(__file__).parent.parent
+            user_folder = root_dir / "Attendance_data" / (st.session_state.reg_user or "")
+            required = [user_folder / f for f in ("center.png", "left.png", "right.png")]
+            if all(p.exists() for p in required):
+                st.session_state.reg_last_result = {
+                    'status': 'success',
+                    'user': st.session_state.reg_user or '',
+                    'timestamp': time.time(),
                 }
-                st.rerun()
             else:
-                st.warning("Registration incomplete. Please capture all required images.")
-                # Reset to step 1 to start captures again
-                reg_state['current_step'] = 1
-                st.rerun()
-                
-    # Jika belum memulai registrasi
-    else:
-        user_data = render_registration_form()
-        
-        if user_data:
-            if not user_data['name']:
-                st.error("❌ Nama user harus diisi!")
-                return
-                
-            # Start registration
-            success, message, _ = prepare_registration(user_data)
-            
-            if success:
-                # Update state
-                st.session_state.registration_state = {
-                    'is_registering': True,
-                    'current_step': 1,  # Start with center capture
-                    'user_data': user_data,
-                    'process': None,
-                    'error': None
+                st.session_state.reg_last_result = {
+                    'status': 'incomplete',
+                    'user': st.session_state.reg_user or '',
+                    'timestamp': time.time(),
                 }
-                st.rerun()
-            else:
-                st.error(message)
+            # Clear process state
+            st.session_state.reg_process = None
+            st.session_state.reg_started_at = None
+            st.session_state.reg_user = None
+            st.rerun()
+        return
+
+    # No process running: show registration form
+    user_data = render_registration_form()
+    if user_data:
+        if not user_data['name']:
+            st.error("❌ Nama user harus diisi!")
+            return
+        # Prepare (save user_data.json and ensure base folder)
+        success, message, _ = prepare_registration(user_data)
+        if not success:
+            st.error(message)
+            return
+        # Launch initial_data_capture.py with username argument
+        root_dir = Path(__file__).parent.parent
+        script_path = root_dir / "initial_data_capture.py"
+        if not script_path.exists():
+            st.error("❌ initial_data_capture.py tidak ditemukan di root project.")
+            return
+        try:
+            # Pass flag to prevent auto-open of attendance window after registration
+            proc = subprocess.Popen([sys.executable, str(script_path), user_data['name'], "--no-run-main"], cwd=str(root_dir))
+            st.session_state.reg_process = proc
+            st.session_state.reg_user = user_data['name']
+            st.session_state.reg_started_at = time.time()
+            st.info("📷 Window registrasi telah dibuka. Ikuti instruksi pada jendela tersebut.")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Gagal menjalankan proses registrasi: {e}")

@@ -1,33 +1,4 @@
-# **FACE BASED ATTENDANCE SYSTEM**
-
-## **OBJECTIVE:**
-
-1. A face based attendance system incorporates facial recognition technology to recognize and verify an employee's or student facial features and to record attendance automatically. 
-
-2. A facial recognition attendance system is a non-contact approach to managing employees in a business significantly, when they are out on the field.
-
-## **PROJECT STRUCTURE:**
-
-```
-Simslife_FaceRecognition/
-├── dashboard/              # Streamlit dashboard application
-│   ├── app.py              # Main dashboard application
-│   ├── pages/              # Dashboard pages
-│   │   └── attendance.py   # Attendance page
-│   └── utils/              # Utility functions
-│       ├── face_recognition_utils/  # Face recognition utilities
-│       │   ├── __init__.py          # Face recognition module initialization
-│       │   └── core.py              # Core face recognition functionality
-│       ├── image_management.py      # Image management utilities
-│       ├── sound.py                 # Sound effects
-│       └── user_data.py             # User data management
-├── Attendance_data/        # Face image storage
-├── Attendance_Entry/       # Attendance records (CSV files)
-└── api/                    # API module
-    ├── auth.py             # Authentication API
-    ├── database.py         # Database interface
-    └── models.py           # Data models
-```ASED ATTENDANCE SYSTEM USING NVIDIA JETSON AGX XAVIER DEVICE**
+# **FACE BASED ATTENDANCE SYSTEM USING NVIDIA JETSON AGX XAVIER DEVICE**
 
 ![20230409_100542_1](https://user-images.githubusercontent.com/75832198/230754595-8df2c106-41a3-4782-acce-9d3b63601444.jpg)
 
@@ -39,96 +10,93 @@ Simslife_FaceRecognition/
 2. A facial recognition attendance system is a non-contact approach to managing employees in a business significantly, when they are out on the field.
 
 
-## **FEATURES:**
+## **STEPS TO FOLLOW IN THIS PROJECT:**
 
-- **User Registration**: Register users with multiple face poses (center, left, right) for better recognition
-- **Attendance Tracking**: Real-time face recognition for attendance check-in and check-out
-- **Shift Management**: Support for morning and night shifts
-- **Attendance History**: View and analyze attendance records with data visualizations
-- **User Management**: Add, edit, and delete user information
-- **Dashboard**: Web-based interface for all system functions
-
-## **SETUP AND INSTALLATION:**
-
-### **1. Install prerequisite libraries**
+### **1. Git clone and change directory**
 
 ```bash
-$ pip install -r requirements.txt
+$ git clone https://github.com/VK-Ant/AttendanceSystem-JetsonAGX.git
+$ cd AttendanceSystem-JetsonAGX
 ```
-Make sure OpenCV, NumPy, face_recognition, and Streamlit are installed.
+Make sure the path is correct.
 
-### **2. Take pictures for user registration**
+### **2. Install prerequisite library using requirement file**
 
-Two ways to register users:
-
-#### Option 1: Using the command line
 ```bash
-$ python initial_data_capture.py
-```
-Follow the prompts to capture face images in different poses.
 
-#### Option 2: Using the Streamlit dashboard (recommended)
+$ pip3 install -r requirement.txt
+
+```
+Check that Opencv,numpy,dlib,cmake, and datetime are installed on your AGX device (Packages).
+
+### **3. Take a picture of your input and save it to the "Attendance_data" folder.**
+
 ```bash
-$ cd dashboard
-$ streamlit run app.py
+$ python3 initial_data_capture.py
 ```
-Navigate to the "Register New User" section and follow the guided registration process.
+After run the above cmd: Enter your name in terminal
 
-### **3. Running the attendance system**
+Make sure your initial images stored in "Attendance_data" folder.
 
-#### Using the Streamlit dashboard (recommended)
+### **4. Attendance system (Main script)**
+
 ```bash
-$ cd dashboard
-$ streamlit run app.py
+$ bash run.sh
+
+or
+
+$ python3 main.py
 ```
-Navigate to the "Attendance" page to check in and out.
 
-## **ATTENDANCE DASHBOARD**
+![b](https://user-images.githubusercontent.com/75832198/230757347-01e0a9a9-5799-4fd0-80e4-69de74837703.png)
 
-The system features a comprehensive dashboard for all attendance management tasks:
 
-### **Dashboard Features:**
+## **Result's**
 
-1. **Home Page**: Overview of system statistics
-2. **Attendance Page**: 
-   - Real-time face recognition for attendance
-   - Historical attendance records with visualizations
-3. **User Management**: 
-   - Register new users
-   - Edit user information
-   - Delete users
-   - Manage user face images
-4. **Reports**: 
-   - Generate attendance reports
-   - Export data as CSV
+### **Output1: Face recognition**
 
-### **Managing User Images:**
+![vk](https://user-images.githubusercontent.com/75832198/230756159-20a50b3e-a8ee-4c14-9a51-5ac2c8a295ac.png)
 
-#### **Using the Dashboard**
+### ***Output2: Automatically Attendance stored in Excel sheet***
+
+![csv](https://user-images.githubusercontent.com/75832198/230755026-83840a34-af75-407f-9c64-46880c5928c0.png)
+
+### **5. Manage user images**
+
+#### **5.1 Delete user images using command line**
+
+```bash
+$ python3 delete_image.py
+```
+After running the above command: Enter the name in terminal to delete that user's images.
+
+Make sure image is deleted by checking the Attendance_data folder.
+
+#### **5.2 Using the Dashboard**
+
+The dashboard provides a graphical interface to manage user images:
+
 1. Navigate to the User Management section
-2. Select a user to manage
-3. You can view, add, or delete user face images
+2. Select a user card and click "View" or "Images" button
+3. In the image viewer, you can delete individual images or all images for a user
 
-#### **Using Command Line**
-For advanced users or batch operations:
-```bash
-$ python delete_image.py
-```
-Follow the prompts to delete a specific user's images.
+This method provides more control over which specific images to delete.
 
-#### **Image Types**
+#### **5.3 Image Types**
+
 The system supports two types of user images:
-- **Single Image**: Basic recognition with one frontal image
-- **Multiple Pose Images**: Enhanced recognition with center, left, and right poses
+- **Single Image**: One image per user, stored as `username.png` in the Attendance_data folder
+- **Multiple Images**: Three pose images (center, left, right) stored in a folder with the username
 
-## **OPTIMIZATIONS:**
+## **PROJECT DESCRIPTION:**
 
-The project has been optimized with:
-- Consolidated face recognition utilities
-- Streamlined interface for better user experience
-- Enhanced visualizations for attendance data
-- Improved code organization and documentation
-- Real-time camera processing for better recognition
+1. Install requirement file.
+
+2. Capture your input image of store it in "Attendance_data" folder. 
+
+3. Next Recognized faces in the given input data using DLIB library.
+
+4. Then Attendance entered in excel sheet.
 
 5. If you want to delete the image throughout the folder use 5th step mentioned above.
 

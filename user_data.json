@@ -62,5 +62,33 @@
     "lpl": {
         "shift": "morning",
         "role": "employee"
+    },
+    "huaa": {
+        "shift": "morning",
+        "role": "employee"
+    },
+    "aries\\": {
+        "shift": "morning",
+        "role": "employee"
+    },
+    "Suka": {
+        "shift": "morning",
+        "role": "employee"
+    },
+    "mekel": {
+        "shift": "night",
+        "role": "employee"
+    },
+    "arisue": {
+        "shift": "night",
+        "role": "employee"
+    },
+    "sum": {
+        "shift": "night",
+        "role": "employee"
+    },
+    "nua": {
+        "shift": "night",
+        "role": "employee"
     }
 }

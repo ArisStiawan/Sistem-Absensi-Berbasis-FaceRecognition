@@ -10,6 +10,8 @@ class AttendanceTracker:
         self.last_attendance = {}  # Store last attendance time for each person
         self.marked_shifts = {}  # Track which shifts have been marked for each person today
         self.cooldown = 3600  # 1 hour in seconds
+        self._user_data_cache = None
+        self._user_data_mtime = 0.0
         
         # Define shift times (24-hour format)
         self.morning_shift = {
@@ -38,6 +40,61 @@ class AttendanceTracker:
         end = datetime.strptime(end, '%H:%M').time()
         
         return start <= current <= end
+
+    def _load_user_data(self):
+        """Load user_data.json from project root or dashboard directory with basic caching."""
+        try:
+            # Determine probable locations
+            root_path = Path(__file__).parent / 'user_data.json'
+            dashboard_path = Path(__file__).parent / 'dashboard' / 'user_data.json'
+
+            # Prefer root file if exists
+            candidate = None
+            if root_path.exists():
+                candidate = root_path
+            elif dashboard_path.exists():
+                candidate = dashboard_path
+
+            if candidate is None:
+                self._user_data_cache = {}
+                self._user_data_mtime = 0.0
+                return
+
+            mtime = candidate.stat().st_mtime
+            if self._user_data_cache is None or mtime != self._user_data_mtime:
+                with open(candidate, 'r', encoding='utf-8') as f:
+                    import json
+                    self._user_data_cache = json.load(f)
+                    self._user_data_mtime = mtime
+        except Exception:
+            # On any error, fallback to empty map
+            self._user_data_cache = {}
+            self._user_data_mtime = 0.0
+
+    def _get_assigned_shift(self, name: str):
+        """Return the assigned shift for a user ('morning'/'night') if available."""
+        self._load_user_data()
+        data = self._user_data_cache or {}
+        meta = data.get(name) or data.get(name.lower()) or data.get(name.title())
+        if not meta:
+            return None
+        shift = meta.get('shift')
+        if isinstance(shift, str):
+            s = shift.strip().lower()
+            if s in ('morning', 'night'):
+                return s
+        return None
+
+    def has_valid_shift(self, name: str) -> bool:
+        """Check if the user's assigned shift matches the current shift window."""
+        current_shift = self._get_current_shift()
+        if not current_shift:
+            return False
+        assigned = self._get_assigned_shift(name)
+        if assigned is None:
+            # If no assignment, treat as valid for now
+            return True
+        return assigned == current_shift
     
     def _reset_daily_records(self, name):
         """Reset daily records if it's a new day"""
@@ -53,6 +110,10 @@ class AttendanceTracker:
         
         # If not within any shift time window
         if not current_shift:
+            return False
+
+        # Enforce assigned shift match
+        if not self.has_valid_shift(name):
             return False
         
         # Reset records if it's a new day
