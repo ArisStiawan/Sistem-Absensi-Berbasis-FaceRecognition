@@ -257,22 +257,37 @@ def show_attendance():
         st.subheader("📊 Riwayat Absensi")
         col1, _ = st.columns([2,2])
         with col1:
-            selected_date = st.date_input(
-                "Pilih Tanggal",
-                datetime.now()
-            )
+            try:
+                selected_date = st.date_input(
+                    "Pilih Tanggal",
+                    datetime.now().date()
+                )
+            except Exception as e:
+                st.error(f"Error selecting date: {str(e)}")
+                selected_date = datetime.now().date()
+            try:
+            # Ensure date is properly formatted
+             if isinstance(selected_date, str):
+                selected_date = datetime.strptime(selected_date, '%Y-%m-%d')
+            
+            # Ensure we have a proper date object and convert it to the correct string format
+        if isinstance(selected_date, datetime):
+            selected_date = selected_date.date()
         date_str = selected_date.strftime("%y_%m_%d")
         attendance_file = get_current_root_dir() / "Attendance_Entry" / f"Attendance_{date_str}.csv"
-        
+            
         if attendance_file.exists():
             try:
-                df = safe_read_attendance_csv(attendance_file)
-                if df is None or df.empty:
-                    st.info(f"Tidak ada data absensi untuk tanggal {selected_date.strftime('%d-%m-%Y')}")
-                else:
-                    df = validate_attendance_dataframe(df)
-                    if 'Time' in df.columns:
-                        df['Time'] = df['Time'].astype(str).str.extract(r'(\b\d{1,2}:\d{2}:\d{2}\b)')[0]
+                    df = safe_read_attendance_csv(attendance_file)
+                    if df is None or df.empty:
+                        st.info(f"Tidak ada data absensi untuk tanggal {selected_date.strftime('%d-%m-%Y')}")
+                    else:
+                        df = validate_attendance_dataframe(df)
+                        if 'Time' in df.columns:
+                            # Handle potential string formatting issues
+                            df['Time'] = df['Time'].astype(str)
+                            df['Time'] = df['Time'].apply(lambda x: x.strip() if isinstance(x, str) else x)
+                            df['Time'] = df['Time'].str.extract(r'(\b\d{1,2}:\d{2}:\d{2}\b)')[0]
                     st.dataframe(
                         df,
                         column_config={
@@ -291,11 +306,14 @@ def show_attendance():
                         with col1:
                             st.metric("Total Absensi", total_records)
                         if 'Shift' in df.columns:
+                            # Convert shift counts to integers explicitly
                             shifts = df['Shift'].value_counts()
+                            morning_count = int(shifts.get('morning', 0)) if 'morning' in shifts else 0
+                            night_count = int(shifts.get('night', 0)) if 'night' in shifts else 0
                             with col2:
-                                st.metric("Shift Pagi", shifts.get('morning', 0))
+                                st.metric("Shift Pagi", morning_count)
                             with col3:
-                                st.metric("Shift Malam", shifts.get('night', 0))
+                                st.metric("Shift Malam", night_count)
             except Exception as e:
                 st.error(f"Error membaca data absensi: {str(e)}")
         else:
