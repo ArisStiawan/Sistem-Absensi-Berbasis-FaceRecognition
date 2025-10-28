@@ -783,8 +783,8 @@ def show_daily_statistics():
         st.dataframe(
             weekly_df,
             column_config={
-                'Tanggal': st.column_config.TextColumn('Tanggal', use_container_width=True),
-                'Hari': st.column_config.TextColumn('Hari', use_container_width=True),
+                'Tanggal': st.column_config.TextColumn('Tanggal', width=700),
+                'Hari': st.column_config.TextColumn('Hari', width=500),
                 'Total Hadir': st.column_config.NumberColumn('Total Hadir', format='%d'),
                 'Tepat Waktu': st.column_config.NumberColumn('Tepat Waktu', format='%d'),
                 'Terlambat': st.column_config.NumberColumn('Terlambat', format='%d')
