@@ -5,7 +5,7 @@ import time
 import sys
 import os
 import csv
-from datetime import datetime
+from datetime import datetime, date
 from utils import sound
 import pandas as pd
 import traceback
@@ -116,10 +116,9 @@ def validate_attendance_dataframe(df):
         return df
     
     try:
-        # Normalisasi nama kolom
-        df.columns = df.columns.str.strip()
-        df.columns = df.columns.str.lower()
-        
+        # Normalisasi nama kolom tanpa asumsi tipe
+        df.columns = [str(c).strip() for c in df.columns]
+
         # Cari dan rename kolom yang relevan
         col_mapping = {}
         for col in df.columns:
@@ -134,11 +133,11 @@ def validate_attendance_dataframe(df):
                 col_mapping[col] = 'Shift'
             elif 'status' in col_lower:
                 col_mapping[col] = 'Status'
-        
+
         df = df.rename(columns=col_mapping)
         df = df.loc[:, ~df.columns.duplicated()]
         df = df.dropna(how='all')
-        
+
         return df
     except Exception as e:
         print(f"Error in validate_attendance_dataframe: {e}")
@@ -257,10 +256,14 @@ def show_attendance():
         st.subheader("📊 Riwayat Absensi")
         col1, _ = st.columns([2,2])
         with col1:
-            selected_date = st.date_input(
-                "Pilih Tanggal",
-                datetime.now()
-            )
+            # Gunakan tipe date murni dan guard untuk string
+            default_date = date.today()
+            selected_date = st.date_input("Pilih Tanggal", default_date)
+            if isinstance(selected_date, str):
+                try:
+                    selected_date = pd.to_datetime(selected_date).date()
+                except Exception:
+                    selected_date = default_date
         date_str = selected_date.strftime("%y_%m_%d")
         attendance_file = get_current_root_dir() / "Attendance_Entry" / f"Attendance_{date_str}.csv"
         

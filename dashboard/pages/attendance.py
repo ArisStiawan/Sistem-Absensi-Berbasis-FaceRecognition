@@ -5,7 +5,7 @@ import time
 import sys
 import os
 import csv
-from datetime import datetime
+from datetime import datetime, date
 from utils import sound
 import pandas as pd
 import traceback
@@ -124,11 +124,10 @@ def validate_attendance_dataframe(df):
         return df
     
     try:
-        # Normalisasi nama kolom
-        df.columns = df.columns.str.strip()
-        df.columns = df.columns.str.lower()
-        
-        # Cari dan rename kolom yang relevan
+        # Normalisasi nama kolom tanpa asumsi tipe (hindari .str pada Index numeric)
+        df.columns = [str(c).strip() for c in df.columns]
+
+        # Cari dan rename kolom yang relevan (berdasarkan lowercase)
         col_mapping = {}
         for col in df.columns:
             col_lower = col.lower()
@@ -142,15 +141,15 @@ def validate_attendance_dataframe(df):
                 col_mapping[col] = 'Shift'
             elif 'status' in col_lower:
                 col_mapping[col] = 'Status'
-        
+
         df = df.rename(columns=col_mapping)
-        
+
         # Drop duplicate columns if any
         df = df.loc[:, ~df.columns.duplicated()]
-        
+
         # Remove rows where all values are empty
         df = df.dropna(how='all')
-        
+
         return df
     except Exception as e:
         print(f"Error in validate_attendance_dataframe: {e}")
@@ -463,10 +462,16 @@ def show_attendance():
         # Date selector for attendance history
         col1, col2 = st.columns([2,2])
         with col1:
-            selected_date = st.date_input(
-                "Pilih Tanggal",
-                datetime.now()
-            )
+            # Gunakan tipe date murni agar kompatibel di berbagai versi Streamlit
+            default_date = date.today()
+            selected_date = st.date_input("Pilih Tanggal", default_date)
+
+            # Guard: jika lingkungan lama mengembalikan string, konversi dengan aman
+            if isinstance(selected_date, str):
+                try:
+                    selected_date = pd.to_datetime(selected_date).date()
+                except Exception:
+                    selected_date = default_date
         
         # Format date for filename
         date_str = selected_date.strftime("%y_%m_%d")
