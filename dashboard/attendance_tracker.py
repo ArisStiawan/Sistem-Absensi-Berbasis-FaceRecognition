@@ -1,7 +1,6 @@
 import datetime
 import requests
 import os
-import json
 from pathlib import Path
 
 class AttendanceTracker:
@@ -13,35 +12,9 @@ class AttendanceTracker:
         # Create Attendance_Entry directory if it doesn't exist
         self.attendance_dir = Path(__file__).parent.parent / "Attendance_Entry"
         os.makedirs(self.attendance_dir, exist_ok=True)
-        
-        # Load user data with assigned shifts
-        self.user_shifts = self._load_user_shifts()
-
-    def _load_user_shifts(self):
-        """Load user shift assignments from user_data.json"""
-        user_shifts = {}
-        candidates = [
-            Path(__file__).parent.parent / "user_data.json",
-            Path(__file__).parent / "user_data.json",
-        ]
-        for path in candidates:
-            if path.exists():
-                try:
-                    with open(path, 'r', encoding='utf-8') as f:
-                        data = json.load(f) or {}
-                        for user_name, user_info in data.items():
-                            if isinstance(user_info, dict) and 'shift' in user_info:
-                                user_shifts[user_name] = user_info['shift']
-                except Exception as e:
-                    print(f"Error loading user shifts from {path}: {e}")
-        return user_shifts
-
-    def get_user_assigned_shift(self, name):
-        """Get the user's assigned shift from user_data.json"""
-        return self.user_shifts.get(name, 'morning')  # Default to morning if not found
 
     def _get_current_shift(self):
-        """Determine current shift based on time (for reference only)"""
+        """Determine current shift based on time"""
         current_hour = datetime.datetime.now().hour
         
         if 8 <= current_hour < 17:
@@ -53,15 +26,13 @@ class AttendanceTracker:
     def can_mark_attendance(self, name):
         """Check if attendance can be marked based on cooldown and shift"""
         current_time = datetime.datetime.now()
+        current_shift = self._get_current_shift()
         
-        # Get user's ASSIGNED shift, not the current time-based shift
-        assigned_shift = self.get_user_assigned_shift(name)
-        
-        if not assigned_shift:
+        if not current_shift:
             return False
         
-        # Check if already marked for assigned shift (not current time-based shift)
-        if name in self.marked_shifts and assigned_shift in self.marked_shifts[name]:
+        # Check if already marked for current shift
+        if name in self.marked_shifts and current_shift in self.marked_shifts[name]:
             return False
         
         # Check cooldown period
@@ -73,15 +44,14 @@ class AttendanceTracker:
         return True
 
     def mark_attendance(self, name):
-        """Mark attendance for a person using their assigned shift"""
+        """Mark attendance for a person"""
         if not self.can_mark_attendance(name):
             return False
             
         current_time = datetime.datetime.now()
-        # Use assigned shift, not time-based shift
-        assigned_shift = self.get_user_assigned_shift(name)
+        current_shift = self._get_current_shift()
         
-        if not assigned_shift:
+        if not current_shift:
             return False
             
         try:
@@ -92,26 +62,25 @@ class AttendanceTracker:
             # Create file with headers if it doesn't exist
             if not file_path.exists():
                 with open(file_path, "w", newline='') as f:
-                    f.write("Name,Time,Date,Shift,Status\n")
+                    f.write("Name,Time,Date\n")
             
-            # Append attendance with ASSIGNED shift
+            # Append attendance
             with open(file_path, "a", newline='') as f:
                 time_str = current_time.strftime("%H:%M:%S")
                 date_str = current_time.strftime("%Y-%m-%d")
-                status = "on_time"  # Default status
-                f.write(f"{name},{time_str},{date_str},{assigned_shift},{status}\n")
+                f.write(f"{name},{time_str},{date_str}\n")
             
-            # Update tracking with ASSIGNED shift
+            # Update tracking
             self.last_detection[name] = current_time
             if name not in self.marked_shifts:
                 self.marked_shifts[name] = set()
-            self.marked_shifts[name].add(assigned_shift)
+            self.marked_shifts[name].add(current_shift)
             
             # Try to send to API
             try:
                 requests.post(
                     "http://localhost:8000/attendance/mark",
-                    json={"employee_name": name, "check_in": current_time.isoformat(), "shift": assigned_shift}
+                    json={"employee_name": name, "check_in": current_time.isoformat()}
                 )
             except:
                 # Continue even if API call fails

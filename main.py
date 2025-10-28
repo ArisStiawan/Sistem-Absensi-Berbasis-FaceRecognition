@@ -257,8 +257,13 @@ while running:
                     cv2.rectangle(img, (left, top), (right, bottom), (0, 255, 0), 2)
                     cv2.rectangle(img, (left, bottom - 35), (right, bottom), (0, 255, 0), cv2.FILLED)
                     
-                    # Try to mark attendance and get status using ASSIGNED shift
-                    assigned_shift = attendance_tracker.get_user_assigned_shift(name)
+                    # Try to mark attendance and get status
+                    # Get ASSIGNED shift for display (not time-based shift)
+                    assigned_shift = attendance_tracker.get_assigned_shift(name)
+                    if assigned_shift is None:
+                        # If no assigned shift, fall back to current shift
+                        assigned_shift = attendance_tracker._get_current_shift()
+                    
                     if assigned_shift:
                         if attendance_tracker.can_mark_attendance(name):
                             marked = markAttendance(name)
@@ -273,7 +278,7 @@ while running:
                             else:
                                 status = f"{assigned_shift.upper()} Shift"
                     else:
-                        status = "Shift not assigned"
+                        status = "Outside shift hours"
                     
                     # Display name on top line
                     cv2.putText(img, name, (left + 6, bottom - 25),

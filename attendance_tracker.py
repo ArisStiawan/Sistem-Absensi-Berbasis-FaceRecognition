@@ -85,11 +85,6 @@ class AttendanceTracker:
                 return s
         return None
 
-    def get_user_assigned_shift(self, name: str):
-        """Public method to get the user's assigned shift from user_data.json"""
-        assigned = self._get_assigned_shift(name)
-        return assigned if assigned else 'morning'  # Default to morning if not assigned
-
     def has_valid_shift(self, name: str) -> bool:
         """Check if the user's assigned shift matches the current shift window."""
         current_shift = self._get_current_shift()
@@ -101,6 +96,10 @@ class AttendanceTracker:
             return True
         return assigned == current_shift
     
+    def get_assigned_shift(self, name: str):
+        """Public method to get user's assigned shift for display purposes"""
+        return self._get_assigned_shift(name)
+    
     def _reset_daily_records(self, name):
         """Reset daily records if it's a new day"""
         current_date = datetime.now().date()
@@ -110,13 +109,16 @@ class AttendanceTracker:
                 self.marked_shifts[name] = set()
     
     def can_mark_attendance(self, name):
-        """Check if attendance can be marked based on assigned shift and cooldown"""
-        # Get user's ASSIGNED shift, not the current time-based shift
-        assigned_shift = self.get_user_assigned_shift(name)
+        """Check if attendance can be marked based on shift times and hourly cooldown"""
+        current_shift = self._get_current_shift()
         
-        # If user has no assigned shift, cannot mark
-        if not assigned_shift:
+        # If not within any shift time window (morning or night hours)
+        if not current_shift:
             return False
+        
+        # Don't enforce assigned shift match anymore - allow all check-ins during shift hours
+        # This allows a user with assigned night shift to check in during morning hours
+        # They will still be recorded, just with their assigned shift (not the time-based shift)
         
         # Reset records if it's a new day
         self._reset_daily_records(name)
@@ -124,10 +126,6 @@ class AttendanceTracker:
         # Initialize marked shifts for new names
         if name not in self.marked_shifts:
             self.marked_shifts[name] = set()
-        
-        # Check if already marked for this assigned shift today
-        if assigned_shift in self.marked_shifts[name]:
-            return False
             
         # Check cooldown period (one detection per hour)
         current_time = time.time()
@@ -142,15 +140,20 @@ class AttendanceTracker:
         return True
         
     def mark_attendance(self, name):
-        """Mark attendance using the user's assigned shift"""
+        """Mark attendance and record with assigned shift, not time-based shift"""
         if not self.can_mark_attendance(name):
             return False
             
         current_time = time.time()
         self.last_attendance[name] = current_time
         
-        # Get assigned shift and mark it as recorded
-        assigned_shift = self.get_user_assigned_shift(name)
+        # Get ASSIGNED shift (not time-based shift) for recording
+        assigned_shift = self._get_assigned_shift(name)
+        if assigned_shift is None:
+            # If no assigned shift, fall back to current shift
+            assigned_shift = self._get_current_shift()
+        
+        # Mark as recorded (track by assigned shift, not current shift)
         if assigned_shift:
             self.marked_shifts.setdefault(name, set()).add(assigned_shift)
         
@@ -173,10 +176,17 @@ class AttendanceTracker:
                     writer = csv.writer(f)
                     writer.writerow(["Name", "Time", "Date", "Shift", "Status"])
             
+            # Determine status based on assigned shift and current time
+            current_shift = self._get_current_shift()
+            if assigned_shift == current_shift:
+                status = "on_time"  # User is checking in during their assigned shift
+            else:
+                status = "off_shift"  # User is checking in outside their assigned shift
+            
             # Record the attendance with assigned shift
             with open(attendance_file, 'a', newline='') as f:
                 writer = csv.writer(f)
-                writer.writerow([name, time_str, date_str, assigned_shift, "on_time"])
+                writer.writerow([name, time_str, date_str, assigned_shift, status])
             
             # Notify the API
             try:
@@ -186,11 +196,12 @@ class AttendanceTracker:
                         "name": name,
                         "time": time_str,
                         "date": date_str,
-                        "shift": assigned_shift
+                        "shift": assigned_shift,
+                        "status": status
                     }
                 )
                 if response.status_code == 200:
-                    print(f"Attendance marked for {name} at {time_str} on {assigned_shift} shift")
+                    print(f"Attendance marked for {name} at {time_str} (Shift: {assigned_shift})")
             except requests.RequestException:
                 # Silently continue if API is not available
                 pass
