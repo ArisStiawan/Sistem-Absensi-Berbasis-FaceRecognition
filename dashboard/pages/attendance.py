@@ -494,7 +494,7 @@ def show_attendance():
                             "Status": "Status"
                         },
                         hide_index=True,
-                        width='stretch'
+                        use_container_width=True
                     )
 
                     # Summary metrics
