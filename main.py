@@ -257,23 +257,23 @@ while running:
                     cv2.rectangle(img, (left, top), (right, bottom), (0, 255, 0), 2)
                     cv2.rectangle(img, (left, bottom - 35), (right, bottom), (0, 255, 0), cv2.FILLED)
                     
-                    # Try to mark attendance and get status
-                    current_shift = attendance_tracker._get_current_shift()
-                    if current_shift:
+                    # Try to mark attendance and get status using ASSIGNED shift
+                    assigned_shift = attendance_tracker.get_user_assigned_shift(name)
+                    if assigned_shift:
                         if attendance_tracker.can_mark_attendance(name):
                             marked = markAttendance(name)
                             if marked:
-                                status = f"✓ {current_shift.upper()} Shift"
+                                status = f"✓ {assigned_shift.upper()} Shift"
                             else:
-                                status = f"{current_shift.upper()} Shift - Already Marked"
+                                status = f"{assigned_shift.upper()} Shift - Already Marked"
                         else:
                             if name in attendance_tracker.marked_shifts and \
-                               current_shift in attendance_tracker.marked_shifts[name]:
-                                status = f"{current_shift.upper()} Shift - Already Marked"
+                               assigned_shift in attendance_tracker.marked_shifts[name]:
+                                status = f"{assigned_shift.upper()} Shift - Already Marked"
                             else:
-                                status = f"{current_shift.upper()} Shift"
+                                status = f"{assigned_shift.upper()} Shift"
                     else:
-                        status = "Outside shift hours"
+                        status = "Shift not assigned"
                     
                     # Display name on top line
                     cv2.putText(img, name, (left + 6, bottom - 25),
