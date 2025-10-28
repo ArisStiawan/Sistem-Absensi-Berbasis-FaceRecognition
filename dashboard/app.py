@@ -184,65 +184,92 @@ def get_today_attendance():
         # Validate and normalize the DataFrame
         df = validate_attendance_dataframe(df)
         
+        # Normalize column names (handle both old and new CSV formats)
+        df.columns = [str(c).strip() for c in df.columns]
+        
+        # Map column names to standard names
+        if 'Name' in df.columns:
+            df = df.rename(columns={'Name': 'employee_name'})
+        if 'Time' in df.columns:
+            df = df.rename(columns={'Time': 'check_in_time'})
+        if 'Date' in df.columns:
+            df = df.rename(columns={'Date': 'date'})
+        if 'Shift' in df.columns:
+            df = df.rename(columns={'Shift': 'recorded_shift'})
+        if 'Status' in df.columns:
+            df = df.rename(columns={'Status': 'recorded_status'})
+        
         # Process each attendance entry
         processed_data = []
-        for _, row in df.iterrows():
+        for idx, row in df.iterrows():
             try:
-                # Get employee name and time
-                employee_name = row.get('Name') or row.get('name')
-                check_in_str = row.get('Time') or row.get('time')
-                
-                if not employee_name or not check_in_str:
+                # Get employee name
+                employee_name = row.get('employee_name')
+                if not employee_name or str(employee_name).strip() == '':
                     continue
+                
+                employee_name = str(employee_name).strip()
+                
+                # Get check-in time
+                check_in_str = row.get('check_in_time')
+                if not check_in_str or str(check_in_str).strip() == '':
+                    continue
+                
+                check_in_str = str(check_in_str).strip()
                 
                 # Parse the date and time
                 check_in_time = None
-                if 'Date' in row.index or 'date' in row.index:
-                    date_val = row.get('Date') or row.get('date')
-                    if date_val and check_in_str:
+                date_val = row.get('date')
+                
+                if date_val and check_in_str:
+                    try:
+                        check_in_time = pd.to_datetime(f"{date_val} {check_in_str}")
+                    except Exception:
                         try:
-                            check_in_time = pd.to_datetime(f"{date_val} {check_in_str}")
-                        except Exception:
                             check_in_time = pd.to_datetime(check_in_str)
+                        except:
+                            continue
                 else:
-                    check_in_time = pd.to_datetime(check_in_str)
+                    try:
+                        check_in_time = pd.to_datetime(check_in_str)
+                    except:
+                        continue
                 
                 if check_in_time is None:
                     continue
                 
-                # Get assigned shift from user data, default to morning if not found
-                assigned_shift = user_shifts.get(employee_name, 'morning')
+                # Get assigned shift from user data or recorded shift (for backward compatibility)
+                assigned_shift = user_shifts.get(employee_name)
                 
-                # Get status first to check if it's a checkout
-                status = get_attendance_status(check_in_time.time(), assigned_shift)
-                
-                # If it's a checkout time, try to update existing entry
-                if status == 'checkout':
-                    # Look for matching entry to update checkout time
-                    matching_entry = next(
-                        (entry for entry in processed_data 
-                         if entry['employee_name'] == employee_name 
-                         and entry['assigned_shift'] == assigned_shift
-                         and entry.get('check_out') is None),
-                        None
-                    )
-                    if matching_entry:
-                        matching_entry['check_out'] = check_in_time
-                        continue  # Skip adding new entry
+                # If no assigned shift in user_data.json, use recorded shift from CSV (if available)
+                if assigned_shift is None:
+                    recorded_shift = row.get('recorded_shift')
+                    if recorded_shift and str(recorded_shift).strip() in ['morning', 'night']:
+                        assigned_shift = str(recorded_shift).strip()
+                    else:
+                        assigned_shift = 'morning'  # Default fallback
                 
                 # Determine actual shift based on check-in time
                 actual_shift = determine_actual_shift(check_in_time.time())
                 
-                # Only add entry if it's not a checkout time
-                if status != 'checkout':
-                    processed_data.append({
-                        'employee_name': employee_name,
-                        'check_in': check_in_time,
-                        'check_out': None,
-                        'assigned_shift': assigned_shift,
-                        'actual_shift': actual_shift,
-                        'status': status
-                    })
+                # Get recorded status from CSV (if available)
+                recorded_status = row.get('recorded_status')
+                if recorded_status and str(recorded_status).strip() in ['on_time', 'late', 'off_shift']:
+                    status = str(recorded_status).strip()
+                else:
+                    # Fallback: determine status based on time and assigned shift
+                    status = get_attendance_status(check_in_time.time(), assigned_shift)
+                
+                # Add processed entry
+                processed_data.append({
+                    'employee_name': employee_name,
+                    'check_in': check_in_time,
+                    'check_out': None,
+                    'assigned_shift': assigned_shift,
+                    'actual_shift': actual_shift,
+                    'status': status
+                })
+                
             except Exception as e:
                 # Log error but continue processing other rows
                 continue

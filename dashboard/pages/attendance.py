@@ -23,7 +23,8 @@ def get_current_root_dir():
 def safe_read_attendance_csv(csv_path, verbose=False):
     """
     Safely read attendance CSV with aggressive error recovery.
-    Now prefer python engine first to avoid C-engine tokenizing error spam.
+    Handles mixed CSV formats (old format with 3 columns, new format with 5 columns).
+    Prioritizes preserving ALL data rows even if they have different column counts.
     """
     if not csv_path.exists():
         if verbose: logger.debug(f"CSV file does not exist: {csv_path}")
@@ -32,59 +33,89 @@ def safe_read_attendance_csv(csv_path, verbose=False):
     try:
         if verbose: logger.debug(f"Attempting to read CSV: {csv_path}")
         
-        # Prefer python engine first (tolerant to variable fields)
-        try:
-            df = pd.read_csv(csv_path, engine='python', on_bad_lines='skip', dtype=str)
-            if verbose: logger.debug("✓ Strategy A succeeded (engine='python', skip bad lines)")
-            return df
-        except Exception as e_py:
-            if verbose: logger.debug(f"✗ Strategy A failed: {type(e_py).__name__}: {str(e_py)[:120]}")
-
-        # Fallback: default C engine (fast) if file is already clean
-        try:
-            df = pd.read_csv(csv_path)
-            if verbose: logger.debug("✓ Strategy B succeeded (default C engine)")
-            return df
-        except Exception as e_c:
-            if verbose: logger.debug(f"✗ Strategy B failed: {type(e_c).__name__}: {str(e_c)[:120]}")
-
-        # Try different separators
-        for sep in [',', ';', '\t', '|', ' ']:
-            try:
-                df = pd.read_csv(csv_path, sep=sep, engine='python', on_bad_lines='skip', dtype=str)
-                if len(df.columns) >= 2:
-                    if verbose: logger.debug(f"✓ Strategy C succeeded (separator='{sep}')")
-                    return df
-            except Exception:
-                continue
-        
-        # Line-by-line repair
+        # Line-by-line repair first - BEST for mixed format CSVs
+        # This strategy preserves ALL rows regardless of column count
         try:
             lines = []
+            all_lines = []
             with open(csv_path, 'r', encoding='utf-8') as f:
                 all_lines = f.readlines()
+            
             if not all_lines:
                 return None
-            header = all_lines[0].strip()
-            header_count = len(header.split(','))
-            lines.append(header)
+            
+            # Get header from first line
+            header = all_lines[0].strip().split(',')
+            max_cols = len(header)
+            
+            # Track if we see any rows with more columns
+            max_seen_cols = max_cols
+            for line in all_lines[1:]:
+                line = line.strip()
+                if line:
+                    parts = line.split(',')
+                    if len(parts) > max_seen_cols:
+                        max_seen_cols = len(parts)
+            
+            # Rebuild with unified column count
+            lines.append(','.join(header))
             for line in all_lines[1:]:
                 line = line.strip()
                 if not line:
                     continue
                 parts = line.split(',')
-                if len(parts) > header_count:
-                    parts = parts[:header_count]
-                elif len(parts) < header_count:
-                    parts.extend([''] * (header_count - len(parts)))
-                lines.append(','.join(parts))
-            csv_content = '\n'.join(lines)
+                # Pad with empty strings if too few columns
+                if len(parts) < max_seen_cols:
+                    parts.extend([''] * (max_seen_cols - len(parts)))
+                # Keep all columns (don't truncate)
+                lines.append(','.join(parts[:max_seen_cols]))
+            
+            # Rebuild header to match max columns
+            if max_seen_cols > len(header):
+                # Add proper column names for extra columns
+                for i in range(len(header), max_seen_cols):
+                    if i == 3:
+                        header.append('Shift')
+                    elif i == 4:
+                        header.append('Status')
+                    else:
+                        header.append(f'Column_{i}')
+            
+            header_line = ','.join(header[:max_seen_cols])
+            csv_content = header_line + '\n' + '\n'.join(lines[1:])
+            
             df = pd.read_csv(io.StringIO(csv_content), dtype=str)
-            if verbose: logger.debug("✓ Strategy D succeeded (line-by-line repair)")
+            if verbose: logger.debug("✓ Strategy A succeeded (line-by-line repair for mixed format)")
             return df
         except Exception as e_fix:
-            if verbose: logger.debug(f"✗ Strategy D failed: {type(e_fix).__name__}: {str(e_fix)[:120]}")
+            if verbose: logger.debug(f"✗ Strategy A failed: {type(e_fix).__name__}: {str(e_fix)[:120]}")
 
+        # Fallback: Prefer python engine (tolerant to variable fields)
+        try:
+            df = pd.read_csv(csv_path, engine='python', on_bad_lines='warn', dtype=str)
+            if verbose: logger.debug("✓ Strategy B succeeded (engine='python', warn bad lines)")
+            return df
+        except Exception as e_py:
+            if verbose: logger.debug(f"✗ Strategy B failed: {type(e_py).__name__}: {str(e_py)[:120]}")
+
+        # Fallback: default C engine (fast) if file is already clean
+        try:
+            df = pd.read_csv(csv_path)
+            if verbose: logger.debug("✓ Strategy C succeeded (default C engine)")
+            return df
+        except Exception as e_c:
+            if verbose: logger.debug(f"✗ Strategy C failed: {type(e_c).__name__}: {str(e_c)[:120]}")
+
+        # Try different separators
+        for sep in [',', ';', '\t', '|', ' ']:
+            try:
+                df = pd.read_csv(csv_path, sep=sep, engine='python', on_bad_lines='warn', dtype=str)
+                if len(df.columns) >= 2:
+                    if verbose: logger.debug(f"✓ Strategy D succeeded (separator='{sep}')")
+                    return df
+            except Exception:
+                continue
+        
         # Raw reader fallback
         try:
             data = []
@@ -97,9 +128,12 @@ def safe_read_attendance_csv(csv_path, verbose=False):
                         continue
                     if not row or all(not str(c).strip() for c in row):
                         continue
-                    data.append(row)
+                    # Pad row to match header length
+                    if len(row) < len(header):
+                        row.extend([''] * (len(header) - len(row)))
+                    data.append(row[:len(header)])
             if data and header:
-                df = pd.DataFrame(data, columns=header[:len(header)])
+                df = pd.DataFrame(data, columns=header)
                 if verbose: logger.debug("✓ Strategy E succeeded (raw csv.reader)")
                 return df
         except Exception as e_raw:
@@ -482,40 +516,77 @@ def show_attendance():
                     st.info(f"Tidak ada data absensi untuk tanggal {selected_date.strftime('%d-%m-%Y')}")
                 else:
                     df = validate_attendance_dataframe(df)
+                    
+                    # Normalize column names to handle both old and new CSV formats
+                    df.columns = [str(c).strip() for c in df.columns]
+                    
+                    # Rename columns to standard names
+                    column_mapping = {
+                        'Name': 'Nama',
+                        'name': 'Nama',
+                        'Time': 'Waktu',
+                        'time': 'Waktu',
+                        'Date': 'Tanggal',
+                        'date': 'Tanggal',
+                        'Shift': 'Shift',
+                        'shift': 'Shift',
+                        'Status': 'Status',
+                        'status': 'Status'
+                    }
+                    
+                    # Apply column renaming
+                    df = df.rename(columns={k: v for k, v in column_mapping.items() if k in df.columns})
 
-                    # Standarisasi kolom Time tanpa warning (ekstrak HH:MM:SS)
-                    if 'Time' in df.columns:
+                    # Format Time column if it exists
+                    if 'Waktu' in df.columns:
                         try:
-                            df['Time'] = df['Time'].astype(str).str.extract(r'(\d{1,2}:\d{2}:\d{2})', expand=False).fillna(df['Time'].astype(str))
-                        except Exception as e:
-                            print(f"Warning: Could not format Time column: {e}")
+                            df['Waktu'] = df['Waktu'].astype(str).str.extract(r'(\d{1,2}:\d{2}:\d{2})', expand=False).fillna(df['Waktu'].astype(str))
+                        except Exception:
                             pass  # Keep original values if extraction fails
-                    st.dataframe(
-                        df,
-                        column_config={
-                            "Name": "Nama",
-                            "Time": "Waktu",
-                            "Date": "Tanggal",
-                            "Shift": "Shift",
-                            "Status": "Status"
-                        },
-                        hide_index=True,
-                        use_container_width=True
-                    )
+                    
+                    # Display the dataframe with available columns
+                    display_columns = []
+                    for col in ['Nama', 'Waktu', 'Tanggal', 'Shift', 'Status']:
+                        if col in df.columns:
+                            display_columns.append(col)
+                    
+                    if display_columns:
+                        st.dataframe(
+                            df[display_columns],
+                            hide_index=True,
+                            use_container_width=True
+                        )
+                    else:
+                        # Fallback: show all columns if none of the expected columns are found
+                        st.dataframe(
+                            df,
+                            hide_index=True,
+                            use_container_width=True
+                        )
 
                     # Summary metrics
                     total_records = len(df)
                     if total_records > 0:
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
+                        metric_cols = st.columns(3)
+                        with metric_cols[0]:
                             st.metric("Total Absensi", total_records)
+                        
+                        # Show shift metrics if Shift column exists
                         if 'Shift' in df.columns:
                             shifts = df['Shift'].value_counts()
-                            with col2:
-                                st.metric("Shift Pagi", shifts.get('morning', 0))
-                            with col3:
-                                st.metric("Shift Malam", shifts.get('night', 0))
+                            with metric_cols[1]:
+                                st.metric("Shift Pagi", int(shifts.get('morning', 0)))
+                            with metric_cols[2]:
+                                st.metric("Shift Malam", int(shifts.get('night', 0)))
+                        # Show status metrics if Status column exists
+                        elif 'Status' in df.columns:
+                            statuses = df['Status'].value_counts()
+                            with metric_cols[1]:
+                                st.metric("Tepat Waktu", int(statuses.get('on_time', 0)))
+                            with metric_cols[2]:
+                                st.metric("Terlambat", int(statuses.get('late', 0)))
             except Exception as e:
                 st.error(f"Error membaca data absensi: {str(e)}")
+                logger.error(f"Attendance history error: {traceback.format_exc()}")
         else:
             st.info(f"Tidak ada data absensi untuk tanggal {selected_date.strftime('%d-%m-%Y')}")
