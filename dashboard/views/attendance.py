@@ -283,7 +283,7 @@ def show_attendance():
                             "Status": "Status"
                         },
                         hide_index=True,
-                        width='stretch'
+                        use_container_width=True
                     )
                     total_records = len(df)
                     if total_records > 0:
@@ -312,7 +312,7 @@ def show_attendance():
                 df = validate_attendance_dataframe(df)
                 if 'Time' in df.columns:
                     df['Time'] = df['Time'].astype(str).str.extract(r'(\b\d{1,2}:\d{2}:\d{2}\b)')[0]
-                st.dataframe(df, width='stretch')
+                st.dataframe(df, use_container_width=True)
             else:
                 st.info("Belum ada absensi hari ini")
         else:
