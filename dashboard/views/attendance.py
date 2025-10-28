@@ -116,9 +116,8 @@ def validate_attendance_dataframe(df):
         return df
     
     try:
-        # Normalisasi nama kolom
-        df.columns = df.columns.str.strip()
-        df.columns = df.columns.str.lower()
+        # Normalisasi nama kolom tanpa .str (hindari error pada Jetson/older pandas)
+        df.columns = [str(c).strip() for c in df.columns]
         
         # Cari dan rename kolom yang relevan
         col_mapping = {}
@@ -272,7 +271,11 @@ def show_attendance():
                 else:
                     df = validate_attendance_dataframe(df)
                     if 'Time' in df.columns:
-                        df['Time'] = df['Time'].astype(str).str.extract(r'(\b\d{1,2}:\d{2}:\d{2}\b)')[0]
+                        try:
+                            df['Time'] = df['Time'].astype(str).str.extract(r'(\d{1,2}:\d{2}:\d{2})', expand=False).fillna(df['Time'].astype(str))
+                        except Exception as e:
+                            print(f"Warning: Could not format Time column: {e}")
+                            pass
                     st.dataframe(
                         df,
                         column_config={
@@ -311,7 +314,11 @@ def show_attendance():
             if df is not None and not df.empty:
                 df = validate_attendance_dataframe(df)
                 if 'Time' in df.columns:
-                    df['Time'] = df['Time'].astype(str).str.extract(r'(\b\d{1,2}:\d{2}:\d{2}\b)')[0]
+                    try:
+                        df['Time'] = df['Time'].astype(str).str.extract(r'(\d{1,2}:\d{2}:\d{2})', expand=False).fillna(df['Time'].astype(str))
+                    except Exception as e:
+                        print(f"Warning: Could not format Time column: {e}")
+                        pass
                 st.dataframe(df, use_container_width=True)
             else:
                 st.info("Belum ada absensi hari ini")

@@ -124,9 +124,8 @@ def validate_attendance_dataframe(df):
         return df
     
     try:
-        # Normalisasi nama kolom
-        df.columns = df.columns.str.strip()
-        df.columns = df.columns.str.lower()
+        # Normalisasi nama kolom tanpa .str (hindari error pada Jetson/older pandas)
+        df.columns = [str(c).strip() for c in df.columns]
         
         # Cari dan rename kolom yang relevan
         col_mapping = {}
@@ -463,10 +462,19 @@ def show_attendance():
         # Date selector for attendance history
         col1, col2 = st.columns([2,2])
         with col1:
+            # Gunakan date() bukan datetime untuk kompatibilitas Jetson Nano
+            default_date = datetime.now().date()
             selected_date = st.date_input(
                 "Pilih Tanggal",
-                datetime.now()
+                default_date
             )
+        
+        # Guard: konversi string ke date jika perlu (untuk kompatibilitas Streamlit lama)
+        if isinstance(selected_date, str):
+            try:
+                selected_date = pd.to_datetime(selected_date).date()
+            except Exception:
+                selected_date = datetime.now().date()
         
         # Format date for filename
         date_str = selected_date.strftime("%y_%m_%d")
@@ -482,7 +490,13 @@ def show_attendance():
 
                     # Standarisasi kolom Time tanpa warning (ekstrak HH:MM:SS)
                     if 'Time' in df.columns:
-                        df['Time'] = df['Time'].astype(str).str.extract(r'(\b\d{1,2}:\d{2}:\d{2}\b)')[0]
+                        try:
+                            # Aman untuk semua versi pandas: convert to str, extract, kemudian fillna
+                            df['Time'] = df['Time'].astype(str).str.extract(r'(\d{1,2}:\d{2}:\d{2})', expand=False).fillna(df['Time'].astype(str))
+                        except Exception as e:
+                            print(f"Warning: Could not format Time column: {e}")
+                            # Fallback: keep original Time values
+                            pass
 
                     st.dataframe(
                         df,
