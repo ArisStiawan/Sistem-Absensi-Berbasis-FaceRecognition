@@ -143,7 +143,7 @@ def render_registration_form() -> dict:
         
         submitted = st.form_submit_button(
             "Mulai Registrasi",
-            width=900,
+            use_container_width=True,
             type="primary"
         )
         
