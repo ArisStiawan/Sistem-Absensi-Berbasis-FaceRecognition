@@ -17,6 +17,9 @@ import face_recognition
 from attendance_tracker import AttendanceTracker
 from typing import Tuple
 
+# Import safe CSV reader from pages
+from pages.attendance import safe_read_attendance_csv, validate_attendance_dataframe
+
 # Initialize face recognition system
 def initialize_face_recognition():
     if 'face_recognition_initialized' not in st.session_state:
@@ -163,112 +166,94 @@ def get_today_attendance():
                     data = json.load(f)
                 user_shifts = {name: info['shift'] for name, info in data.items()}
             except:
-                st.warning("⚠️ Could not load user shift data")
+                pass  # silently continue with empty shifts
         
         # Get attendance data
         attendance_dir = Path(__file__).parent.parent / "Attendance_Entry"
         today_file = attendance_dir / f"Attendance_{datetime.now().strftime('%y_%m_%d')}.csv"
         
-        if today_file.exists():
+        if not today_file.exists():
+            # Return empty DataFrame if today's file doesn't exist yet
+            return pd.DataFrame(columns=['employee_name', 'check_in', 'check_out', 'assigned_shift', 'actual_shift', 'status'])
+        
+        # Use the safe CSV reader from pages.attendance
+        df = safe_read_attendance_csv(today_file, verbose=False)
+        if df is None or df.empty:
+            return pd.DataFrame(columns=['employee_name', 'check_in', 'check_out', 'assigned_shift', 'actual_shift', 'status'])
+        
+        # Validate and normalize the DataFrame
+        df = validate_attendance_dataframe(df)
+        
+        # Process each attendance entry
+        processed_data = []
+        for _, row in df.iterrows():
             try:
-                # Use python engine to tolerate variable number of fields per line
-                df = pd.read_csv(today_file, engine='python')
-            except Exception as e:
-                # Fallback: minimal manual parsing for Name, Time, Date
-                import csv as _csv
-                rows = []
-                with open(today_file, 'r', newline='') as _f:
-                    reader = _csv.reader(_f)
-                    header = next(reader, [])
-                    def _idx(col, default):
-                        return header.index(col) if col in header else default
-                    name_i = _idx('Name', 0)
-                    time_i = _idx('Time', 1)
-                    date_i = _idx('Date', 2)
-                    for r in reader:
-                        if not r:
-                            continue
-                        rows.append({
-                            'Name': r[name_i] if name_i < len(r) else None,
-                            'Time': r[time_i] if time_i < len(r) else None,
-                            'Date': r[date_i] if date_i < len(r) else None
-                        })
-                df = pd.DataFrame(rows)
-                if not df.empty:
-                    # Check if we have the required columns
-                    required_cols = {'Name', 'Time'}
-                    if not all(col in df.columns for col in required_cols):
-                        # Try alternate column names
-                        if 'employee_name' in df.columns and 'check_in' in df.columns:
-                            df = df.rename(columns={
-                                'employee_name': 'Name',
-                                'check_in': 'Time'
-                            })
-                    
-                    # Process each attendance entry
-                    processed_data = []
-                    for _, row in df.iterrows():
-                        # Get employee name and time
-                        employee_name = row['Name']
-                        check_in_str = row['Time']
-                        
-                        try:
-                            # Parse the date and time
-                            check_in_time = None
-                            if 'Date' in row:
-                                # Combine date and time
-                                check_in_time = pd.to_datetime(f"{row['Date']} {row['Time']}")
-                            else:
-                                # Just parse the time string
-                                check_in_time = pd.to_datetime(check_in_str)
-                            
-                            # Get assigned shift from user data, default to morning if not found
-                            assigned_shift = user_shifts.get(employee_name, 'morning')
-                            
-                            # Get status first to check if it's a checkout
-                            status = get_attendance_status(check_in_time.time(), assigned_shift)
-                            
-                            # If it's a checkout time, try to update existing entry
-                            if status == 'checkout':
-                                # Look for matching entry to update checkout time
-                                matching_entry = next(
-                                    (entry for entry in processed_data 
-                                     if entry['employee_name'] == employee_name 
-                                     and entry['assigned_shift'] == assigned_shift
-                                     and 'check_out' not in entry),
-                                    None
-                                )
-                                if matching_entry:
-                                    matching_entry['check_out'] = check_in_time
-                                    continue  # Skip adding new entry
-                            
-                            # Determine actual shift based on check-in time
-                            actual_shift = determine_actual_shift(check_in_time.time())
-                            
-                            # Only add entry if it's not a checkout time
-                            if status != 'checkout':
-                                processed_data.append({
-                                    'employee_name': employee_name,
-                                    'check_in': check_in_time,
-                                    'check_out': None,
-                                    'assigned_shift': assigned_shift,
-                                    'actual_shift': actual_shift,
-                                    'status': status
-                                })
-                        except Exception as e:
-                            st.warning(f"Could not process attendance for {employee_name}: {str(e)}")
-                            continue
-                    
-                    if processed_data:
-                        return pd.DataFrame(processed_data)
-            except Exception as e:
-                st.warning(f"Error reading attendance file: {str(e)}")
+                # Get employee name and time
+                employee_name = row.get('Name') or row.get('name')
+                check_in_str = row.get('Time') or row.get('time')
                 
-        # Return empty DataFrame if no data or errors
-        return pd.DataFrame(columns=['employee_name', 'check_in', 'check_out', 'assigned_shift', 'actual_shift', 'status'])
+                if not employee_name or not check_in_str:
+                    continue
+                
+                # Parse the date and time
+                check_in_time = None
+                if 'Date' in row.index or 'date' in row.index:
+                    date_val = row.get('Date') or row.get('date')
+                    if date_val and check_in_str:
+                        try:
+                            check_in_time = pd.to_datetime(f"{date_val} {check_in_str}")
+                        except Exception:
+                            check_in_time = pd.to_datetime(check_in_str)
+                else:
+                    check_in_time = pd.to_datetime(check_in_str)
+                
+                if check_in_time is None:
+                    continue
+                
+                # Get assigned shift from user data, default to morning if not found
+                assigned_shift = user_shifts.get(employee_name, 'morning')
+                
+                # Get status first to check if it's a checkout
+                status = get_attendance_status(check_in_time.time(), assigned_shift)
+                
+                # If it's a checkout time, try to update existing entry
+                if status == 'checkout':
+                    # Look for matching entry to update checkout time
+                    matching_entry = next(
+                        (entry for entry in processed_data 
+                         if entry['employee_name'] == employee_name 
+                         and entry['assigned_shift'] == assigned_shift
+                         and entry.get('check_out') is None),
+                        None
+                    )
+                    if matching_entry:
+                        matching_entry['check_out'] = check_in_time
+                        continue  # Skip adding new entry
+                
+                # Determine actual shift based on check-in time
+                actual_shift = determine_actual_shift(check_in_time.time())
+                
+                # Only add entry if it's not a checkout time
+                if status != 'checkout':
+                    processed_data.append({
+                        'employee_name': employee_name,
+                        'check_in': check_in_time,
+                        'check_out': None,
+                        'assigned_shift': assigned_shift,
+                        'actual_shift': actual_shift,
+                        'status': status
+                    })
+            except Exception as e:
+                # Log error but continue processing other rows
+                continue
+        
+        if processed_data:
+            return pd.DataFrame(processed_data)
+        else:
+            return pd.DataFrame(columns=['employee_name', 'check_in', 'check_out', 'assigned_shift', 'actual_shift', 'status'])
     
     except Exception as e:
-        st.error(f"Gagal mengambil data absensi hari ini: {str(e)}")
+        # Return empty DataFrame on error instead of showing error to user
         return pd.DataFrame(columns=['employee_name', 'check_in', 'check_out', 'assigned_shift', 'actual_shift', 'status'])
 
 def get_all_attendance():
