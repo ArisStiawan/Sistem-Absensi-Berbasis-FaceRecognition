@@ -85,6 +85,11 @@ class AttendanceTracker:
                 return s
         return None
 
+    def get_user_assigned_shift(self, name: str):
+        """Public method to get the user's assigned shift from user_data.json"""
+        assigned = self._get_assigned_shift(name)
+        return assigned if assigned else 'morning'  # Default to morning if not assigned
+
     def has_valid_shift(self, name: str) -> bool:
         """Check if the user's assigned shift matches the current shift window."""
         current_shift = self._get_current_shift()
@@ -105,15 +110,12 @@ class AttendanceTracker:
                 self.marked_shifts[name] = set()
     
     def can_mark_attendance(self, name):
-        """Check if attendance can be marked based on shift times and hourly cooldown"""
-        current_shift = self._get_current_shift()
+        """Check if attendance can be marked based on assigned shift and cooldown"""
+        # Get user's ASSIGNED shift, not the current time-based shift
+        assigned_shift = self.get_user_assigned_shift(name)
         
-        # If not within any shift time window
-        if not current_shift:
-            return False
-
-        # Enforce assigned shift match
-        if not self.has_valid_shift(name):
+        # If user has no assigned shift, cannot mark
+        if not assigned_shift:
             return False
         
         # Reset records if it's a new day
@@ -122,6 +124,10 @@ class AttendanceTracker:
         # Initialize marked shifts for new names
         if name not in self.marked_shifts:
             self.marked_shifts[name] = set()
+        
+        # Check if already marked for this assigned shift today
+        if assigned_shift in self.marked_shifts[name]:
+            return False
             
         # Check cooldown period (one detection per hour)
         current_time = time.time()
@@ -136,17 +142,17 @@ class AttendanceTracker:
         return True
         
     def mark_attendance(self, name):
-        """Mark attendance and notify API if within shift hours and not already marked"""
+        """Mark attendance using the user's assigned shift"""
         if not self.can_mark_attendance(name):
             return False
             
         current_time = time.time()
         self.last_attendance[name] = current_time
         
-        # Get current shift and mark it as recorded
-        current_shift = self._get_current_shift()
-        if current_shift:
-            self.marked_shifts.setdefault(name, set()).add(current_shift)
+        # Get assigned shift and mark it as recorded
+        assigned_shift = self.get_user_assigned_shift(name)
+        if assigned_shift:
+            self.marked_shifts.setdefault(name, set()).add(assigned_shift)
         
         # Get current date and time
         now = datetime.now()
@@ -165,12 +171,12 @@ class AttendanceTracker:
             if not os.path.exists(attendance_file):
                 with open(attendance_file, 'w', newline='') as f:
                     writer = csv.writer(f)
-                    writer.writerow(["Name", "Time", "Date"])
+                    writer.writerow(["Name", "Time", "Date", "Shift", "Status"])
             
-            # Record the attendance
+            # Record the attendance with assigned shift
             with open(attendance_file, 'a', newline='') as f:
                 writer = csv.writer(f)
-                writer.writerow([name, time_str, date_str])
+                writer.writerow([name, time_str, date_str, assigned_shift, "on_time"])
             
             # Notify the API
             try:
@@ -179,11 +185,12 @@ class AttendanceTracker:
                     json={
                         "name": name,
                         "time": time_str,
-                        "date": date_str
+                        "date": date_str,
+                        "shift": assigned_shift
                     }
                 )
                 if response.status_code == 200:
-                    print(f"Attendance marked for {name} at {time_str}")
+                    print(f"Attendance marked for {name} at {time_str} on {assigned_shift} shift")
             except requests.RequestException:
                 # Silently continue if API is not available
                 pass
