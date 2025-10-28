@@ -119,6 +119,26 @@ def Intial_data_capture(name=None, camera_id=None, run_main=True):
 
     camera = cv2.VideoCapture(camera_id)
     
+    # Create window first
+    cv2.namedWindow('Capturing', cv2.WINDOW_NORMAL)
+    
+    # Create a temporary window to get screen dimensions
+    temp_window = cv2.namedWindow('temp', cv2.WINDOW_NORMAL)
+    cv2.setWindowProperty('temp', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    screen_width = int(camera.get(cv2.CAP_PROP_FRAME_WIDTH))
+    screen_height = int(camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    cv2.destroyWindow('temp')
+    
+    # If we couldn't get proper dimensions, use default resolution
+    if screen_width <= 0 or screen_height <= 0:
+        screen_width = 1920
+        screen_height = 1080
+        print("Warning: Could not detect screen size, using default 1920x1080")
+    
+    # Set window to fullscreen
+    cv2.namedWindow('Capturing', cv2.WINDOW_NORMAL)
+    cv2.setWindowProperty('Capturing', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    
     EYE_BLINK_THRESHOLD = 0.25
     ORIENTATION_HOLD_TIME = 2.0
     
@@ -395,8 +415,8 @@ def Intial_data_capture(name=None, camera_id=None, run_main=True):
         # Show the image
         cv2.imshow('Capturing', display_image)
         
-        # Check for ESC key
-        if cv2.waitKey(1) == 27:  # ESC
+        # Check for ESC key to exit fullscreen
+        if cv2.waitKey(1) == 27:  # ESC to exit fullscreen
             print("Capture cancelled")
             break
     

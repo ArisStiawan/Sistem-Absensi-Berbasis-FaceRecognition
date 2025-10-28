@@ -34,11 +34,26 @@ def api_call(endpoint: str, method="get", **kwargs):
 def show_user_management():
     st.header("👤 User Management")
 
+    # Get user metadata from JSON first (this has shift and role info)
+    user_meta = get_user_data() or {}
+
     # Get API users if available
     users_response = api_call("/users")
     registered_users = []
     if users_response and "data" in users_response:
+        # API is available, but we need to enrich with shift/role data from user_meta
         registered_users = users_response["data"]
+        # Enrich API data with shift and role from user_meta JSON
+        for user in registered_users:
+            user_name = user.get("name", "")
+            if user_name in user_meta:
+                # Merge metadata (shift, role) from user_data.json
+                user["shift"] = user_meta[user_name].get("shift", user.get("shift", "morning"))
+                user["role"] = user_meta[user_name].get("role", user.get("role", "employee"))
+            else:
+                # If not in user_meta, set default
+                user.setdefault("shift", "morning")
+                user.setdefault("role", "employee")
     else:
         # Fallback to local file scan if API isn't working
         root_dir = Path(__file__).parent.parent
@@ -56,7 +71,6 @@ def show_user_management():
         st.warning("⚠️ API tidak tersedia, menggunakan data lokal")
 
         # Aggregate users from all possible Attendance_data locations
-        user_meta = get_user_data() or {}
         users_map = {}
         for attendance_dir in attendance_dirs:
             # Single-image users
@@ -64,10 +78,10 @@ def show_user_management():
                 name = img.stem
                 # Prefer directory/multiple over single if both exist later
                 if name not in users_map:
-                    shift_val = user_meta.get(name, {}).get("shift", "Not Set")
+                    shift_val = user_meta.get(name, {}).get("shift", "morning")
                     users_map[name] = {
                         "name": name,
-                        "role": "Employee",
+                        "role": user_meta.get(name, {}).get("role", "employee"),
                         "shift": shift_val,
                         "image_path": str(img),
                         "type": "file"
@@ -77,10 +91,10 @@ def show_user_management():
             for folder in [d for d in attendance_dir.iterdir() if d.is_dir()]:
                 center_img = folder / "center.png"
                 if center_img.exists():
-                    shift_val = user_meta.get(folder.name, {}).get("shift", "Not Set")
+                    shift_val = user_meta.get(folder.name, {}).get("shift", "morning")
                     users_map[folder.name] = {
                         "name": folder.name,
-                        "role": "Employee",
+                        "role": user_meta.get(folder.name, {}).get("role", "employee"),
                         "shift": shift_val,
                         "image_path": str(center_img),
                         "type": "directory"
@@ -307,7 +321,7 @@ def show_multiple_image_users(users):
 
 
 def _edit_user(user_name: str):
-    """Edit nama dan role user"""
+    """Edit nama, role, dan shift user"""
     st.subheader(f"✏️ Edit Data User: {user_name}")
 
     json_path = Path(__file__).parent.parent / "user_data.json"
@@ -316,9 +330,24 @@ def _edit_user(user_name: str):
         with open(json_path, "r") as f:
             data = json.load(f)
 
-    current_role = data.get(user_name, {}).get("role", "")
+    current_role = data.get(user_name, {}).get("role", "employee")
+    current_shift = data.get(user_name, {}).get("shift", "morning")
+    
     new_name = st.text_input("Nama User", value=user_name)
-    new_role = st.text_input("Role", value=current_role)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        new_role = st.selectbox(
+            "Role",
+            ["employee", "supervisor", "manager"],
+            index=["employee", "supervisor", "manager"].index(current_role) if current_role in ["employee", "supervisor", "manager"] else 0
+        )
+    with col2:
+        new_shift = st.selectbox(
+            "Shift",
+            ["morning", "night"],
+            index=["morning", "night"].index(current_shift) if current_shift in ["morning", "night"] else 0
+        )
 
     if st.button("💾 Simpan"):
         try:
@@ -340,13 +369,14 @@ def _edit_user(user_name: str):
                 del data[user_name]
                 data[new_name] = user_data
                 data[new_name]["role"] = new_role
+                data[new_name]["shift"] = new_shift
             else:
-                data[new_name] = {"role": new_role}
+                data[new_name] = {"role": new_role, "shift": new_shift}
 
             with open(json_path, "w") as f:
                 json.dump(data, f, indent=4)
 
-            st.success(f"✅ User '{user_name}' berhasil diubah menjadi '{new_name}'.")
+            st.success(f"✅ User '{user_name}' berhasil diubah menjadi '{new_name}' (Shift: {new_shift.title()}).")
             st.rerun()
         except Exception as e:
             st.error(f"Gagal edit user: {e}")
