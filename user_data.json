@@ -14,5 +14,13 @@
     "Aris": {
         "shift": "morning",
         "role": "supervisor"
+    },
+    "mekel": {
+        "shift": "morning",
+        "role": "employee"
+    },
+    "mike": {
+        "shift": "morning",
+        "role": "employee"
     }
 }
