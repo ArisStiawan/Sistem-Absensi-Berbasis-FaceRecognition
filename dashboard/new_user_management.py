@@ -32,7 +32,6 @@ def api_call(endpoint: str, method="get", **kwargs):
 
 
 def show_user_management():
-    st.header("👤 User Management")
 
     # Get user metadata from JSON first (this has shift and role info)
     user_meta = get_user_data() or {}

@@ -284,13 +284,42 @@ def get_today_attendance():
         return pd.DataFrame(columns=['employee_name', 'check_in', 'check_out', 'assigned_shift', 'actual_shift', 'status'])
 
 def get_all_attendance():
+    """Get all attendance data from CSV files (local fallback if API fails)"""
     try:
+        # Try API first
         response = api_call("/attendance/all")
         if response and 'data' in response:
-            return pd.DataFrame(response['data'])
+            api_df = pd.DataFrame(response['data'])
+            if not api_df.empty:
+                return api_df
+    except:
+        pass  # Fallback to local files
+    
+    # Fallback: Read from all CSV files locally
+    try:
+        from pathlib import Path
+        sys.path.insert(0, './dashboard')
+        from pages.attendance import safe_read_attendance_csv, validate_attendance_dataframe
+        
+        attendance_dir = Path("Attendance_Entry")
+        if not attendance_dir.exists():
+            return pd.DataFrame()
+        
+        all_data = []
+        # Read all CSV files in Attendance_Entry directory
+        for csv_file in sorted(attendance_dir.glob("Attendance_*.csv")):
+            df = safe_read_attendance_csv(csv_file, verbose=False)
+            if df is not None and not df.empty:
+                df = validate_attendance_dataframe(df)
+                all_data.append(df)
+        
+        if all_data:
+            combined_df = pd.concat(all_data, ignore_index=True)
+            # Normalize columns
+            combined_df.columns = [col.strip() for col in combined_df.columns]
+            return combined_df
         return pd.DataFrame()
     except Exception as e:
-        st.error(f"Failed to fetch attendance data: {str(e)}")
         return pd.DataFrame()
 
 def get_registered_users():
@@ -371,14 +400,14 @@ def show_overview():
     with col1:
         st.metric("Total Hadir", total_present)
     
-    # Initialize counters for actual shifts
+    # Initialize counters for assigned shifts
     morning_count = 0
     night_count = 0
     
     if not df.empty:
-        # Count by actual shift
-        morning_shift = df[df['actual_shift'] == 'morning']
-        night_shift = df[df['actual_shift'] == 'night']
+        # Count by assigned shift (what shift they're assigned to, not when they checked in)
+        morning_shift = df[df['assigned_shift'] == 'morning']
+        night_shift = df[df['assigned_shift'] == 'night']
         
         morning_count = len(morning_shift)
         night_count = len(night_shift)
@@ -557,32 +586,40 @@ def export_attendance_to_csv(df, filename):
 
 def show_daily_statistics():
     st.header("Daily Statistics")
-    
+
     # Add Export & Import buttons
     col1, col2 = st.columns([1, 1])
     
     def prepare_attendance_data(df):
-        """Prepare attendance data by converting date/time columns, filter out invalid date rows"""
+        """Prepare attendance data by converting date/time columns, KEEP ALL ROWS"""
         import pandas as pd
         try:
-            # Normalize column names
-            if 'Date' in df.columns and 'date' not in df.columns:
-                df = df.rename(columns={'Date': 'date'})
-            if 'Time' in df.columns and 'time' not in df.columns:
-                df = df.rename(columns={'Time': 'time'})
+            if df is None or df.empty:
+                return df, None
+            
+            # Make a copy to avoid SettingWithCopyWarning
+            df = df.copy()
+            
+            # Normalize column names (make lowercase and strip)
+            df.columns = [col.lower().strip() for col in df.columns]
+            
+            # Rename 'name' to 'employee_name' for consistency if needed
+            if 'name' in df.columns and 'employee_name' not in df.columns:
+                df = df.rename(columns={'name': 'employee_name'})
 
-            # Filter only rows where 'date' looks like a date (YYYY-MM-DD or YY_MM_DD)
+            # Convert date column - KEEP ALL ROWS, no filtering
             if 'date' in df.columns:
-                # Only keep rows where date matches a date pattern
-                df = df[df['date'].astype(str).str.match(r'^(\d{4}-\d{2}-\d{2}|\d{2}_\d{2}_\d{2})$')]
+                # Try to parse dates flexibly
                 df['date'] = pd.to_datetime(df['date'], errors='coerce')
-                df = df[df['date'].notna()]
-
-            # Convert time column if exists
+                # NOTE: We keep rows with NaT dates too - they might have partial data
+            
+            # Convert time column if exists - KEEP ALL ROWS
             if 'time' in df.columns:
-                # Only keep rows where time looks like HH:MM:SS
-                df = df[df['time'].astype(str).str.match(r'^\d{1,2}:\d{2}:\d{2}$')]
-                df['time'] = pd.to_datetime(df['time'], errors='coerce').dt.time
+                # Try to parse times
+                df['time'] = pd.to_datetime(df['time'], format='%H:%M:%S', errors='coerce').dt.time
+                # Replace NaT with None for time columns
+                df['time'] = df['time'].where(df['time'].notna(), None)
+            
             return df, None
         except Exception as e:
             return None, str(e)
@@ -590,87 +627,89 @@ def show_daily_statistics():
     with col1:
         # Get the data first
         df = get_all_attendance()
-        if not df.empty:
+        
+        # Debug info
+        if df.empty:
+            st.warning("⚠️ Tidak ada data untuk di-export")
+        else:
+            st.info(f"📊 Total records loaded: {len(df)}")
+            
             # Prepare data
             prepared_df, error = prepare_attendance_data(df)
             
             if error:
-                st.error(f"Error saat memproses data: {error}")
-                return
+                st.error(f"❌ Error saat memproses data: {error}")
+            elif prepared_df is None:
+                st.error("❌ Gagal memproses data")
+            else:
+                df = prepared_df
                 
-            df = prepared_df
-            
-            # Add weekly filter
-            current_date = datetime.now()
-            start_of_week = current_date - timedelta(days=current_date.weekday())
-            end_of_week = start_of_week + timedelta(days=6)
-            
-            # Format untuk nama file
-            period = st.selectbox(
-                "Periode",
-                ["Hari Ini", "Minggu Ini", "Bulan Ini", "Semua"],
-                help="Pilih periode data yang akan diexport"
-            )
-            
-            if st.button("📥 Download CSV", use_container_width=True):
-                try:
-                    # Filter data berdasarkan periode
-                    if period == "Hari Ini":
-                        mask = df['date'].dt.date == current_date.date()
-                        filename = f"Attendance_{current_date.strftime('%d_%m_%y')}.csv"
-                    elif period == "Minggu Ini":
-                        mask = (df['date'].dt.date >= start_of_week.date()) & (df['date'].dt.date <= end_of_week.date())
-                        filename = f"Weekly_Attendance_{start_of_week.strftime('%d_%m_%y')}_to_{end_of_week.strftime('%d_%m_%y')}.csv"
-                    elif period == "Bulan Ini":
-                        mask = df['date'].dt.to_period('M') == current_date.to_period('M')
-                        filename = f"Monthly_Attendance_{current_date.strftime('%m_%Y')}.csv"
-                    else:  # Semua
-                        mask = pd.Series(True, index=df.index)
-                        filename = f"All_Attendance_as_of_{current_date.strftime('%d_%m_%y')}.csv"
-                    
-                    # Filter dan persiapkan data untuk download
-                    filtered_df = df[mask].copy()
-                    
-                    if not filtered_df.empty:
-                        # Convert datetime to string untuk CSV
-                        if 'date' in filtered_df.columns:
-                            filtered_df['date'] = filtered_df['date'].dt.strftime('%Y-%m-%d')
-                        if 'time' in filtered_df.columns:
-                            filtered_df['time'] = filtered_df['time'].astype(str)
+                # Add weekly filter
+                current_date = datetime.now()
+                start_of_week = current_date - timedelta(days=current_date.weekday())
+                end_of_week = start_of_week + timedelta(days=6)
+                
+                # Format untuk nama file
+                period = st.selectbox(
+                    "Periode Export",
+                    ["Hari Ini", "Minggu Ini", "Bulan Ini", "Semua"],
+                    help="Pilih periode data yang akan diexport"
+                )
+                
+                if st.button("📥 Download CSV", use_container_width=True, key='export_csv_button'):
+                    try:
+                        # FILTER DENGAN BENAR - hanya filter rows yang punya valid date
+                        df_valid = df.dropna(subset=['date']).copy()
                         
-                        # Download CSV
-                        csv_data = filtered_df.to_csv(index=False).encode('utf-8')
-                        st.download_button(
-                            "💾 Simpan File",
-                            csv_data,
-                            filename,
-                            "text/csv",
-                            key='save-csv'
-                        )
-                        st.success(f"✅ File siap didownload: {filename}")
-                    else:
-                        st.warning(f"⚠️ Tidak ada data untuk periode {period.lower()}")
-                        
-                except Exception as e:
-                    st.error(f"❌ Error saat memproses data: {str(e)}")
-                    st.info("Silakan coba lagi atau pilih periode yang berbeda")
-                
-                filtered_df = df[mask]
-                
-                if not filtered_df.empty:
-                    csv = filtered_df.to_csv(index=False).encode('utf-8')
-                    st.download_button(
-                        "💾 Simpan CSV",
-                        csv,
-                        filename,
-                        "text/csv",
-                        key='download-csv'
-                    )
-                    st.success(f"✅ Data siap didownload: {filename}")
-                else:
-                    st.warning(f"⚠️ Tidak ada data untuk periode {period.lower()}")
-        else:
-            st.warning("⚠️ Tidak ada data untuk di-export")
+                        if df_valid.empty:
+                            st.error(f"❌ Tidak ada data dengan tanggal valid untuk periode ini")
+                        else:
+                            st.info(f"📍 Valid records for filtering: {len(df_valid)}")
+                            
+                            # Filter data berdasarkan periode
+                            if period == "Hari Ini":
+                                mask = df_valid['date'].dt.date == current_date.date()
+                                filename = f"Attendance_{current_date.strftime('%d_%m_%y')}.csv"
+                            elif period == "Minggu Ini":
+                                mask = (df_valid['date'].dt.date >= start_of_week.date()) & (df_valid['date'].dt.date <= end_of_week.date())
+                                filename = f"Weekly_Attendance_{start_of_week.strftime('%d_%m_%y')}_to_{end_of_week.strftime('%d_%m_%y')}.csv"
+                            elif period == "Bulan Ini":
+                                mask = df_valid['date'].dt.to_period('M') == current_date.to_period('M')
+                                filename = f"Monthly_Attendance_{current_date.strftime('%m_%Y')}.csv"
+                            else:  # Semua
+                                mask = pd.Series(True, index=df_valid.index)
+                                filename = f"All_Attendance_as_of_{current_date.strftime('%d_%m_%y')}.csv"
+                            
+                            # Filter dan persiapkan data untuk download
+                            filtered_df = df_valid[mask].copy()
+                            
+                            if not filtered_df.empty:
+                                # Convert datetime to string untuk CSV (untuk kolom yang sudah datetime)
+                                if 'date' in filtered_df.columns and hasattr(filtered_df['date'].iloc[0], 'strftime'):
+                                    filtered_df['date'] = filtered_df['date'].dt.strftime('%Y-%m-%d')
+                                
+                                # Time sudah di-convert ke time object, convert ke string
+                                if 'time' in filtered_df.columns:
+                                    filtered_df['time'] = filtered_df['time'].apply(lambda x: str(x) if x is not None else '')
+                                
+                                # Download CSV
+                                csv_data = filtered_df.to_csv(index=False).encode('utf-8-sig')
+                                st.download_button(
+                                    label="💾 Simpan File",
+                                    data=csv_data,
+                                    file_name=filename,
+                                    mime="text/csv",
+                                    key=f'download_{period}_{current_date.timestamp()}'
+                                )
+                                st.success(f"✅ {len(filtered_df)} data siap didownload: {filename}")
+                            else:
+                                st.warning(f"⚠️ Tidak ada data untuk periode: {period}")
+                                st.info(f"Coba pilih periode lain atau gunakan 'Semua'")
+                                
+                    except Exception as e:
+                        st.error(f"❌ Error saat memproses data: {str(e)}")
+                        import traceback
+                        st.write(traceback.format_exc())
     
     with col2:
         uploaded_file = st.file_uploader(
@@ -684,36 +723,44 @@ def show_daily_statistics():
                 # Read CSV
                 import_df = pd.read_csv(uploaded_file)
                 
-                # Validate columns
-                required_cols = ['employee_name', 'date', 'time', 'status']
-                missing_cols = [col for col in required_cols if col not in import_df.columns]
+                # Normalize column names
+                import_df.columns = [col.lower().strip() for col in import_df.columns]
                 
-                if missing_cols:
-                    st.error(f"❌ Kolom yang diperlukan tidak ditemukan: {', '.join(missing_cols)}")
+                # Check for required columns (flexible naming)
+                has_name = any(col in import_df.columns for col in ['employee_name', 'name', 'nama'])
+                has_date = any(col in import_df.columns for col in ['date', 'tanggal', 'tgl'])
+                has_time = any(col in import_df.columns for col in ['time', 'waktu', 'jam'])
+                
+                if not (has_name and has_date and has_time):
+                    missing = []
+                    if not has_name: missing.append('employee_name/name/nama')
+                    if not has_date: missing.append('date/tanggal/tgl')
+                    if not has_time: missing.append('time/waktu/jam')
+                    
+                    st.error(f"❌ Kolom yang diperlukan tidak ditemukan: {', '.join(missing)}")
                     st.info("""
                     Format CSV yang diperlukan:
-                    - employee_name: Nama karyawan
-                    - date: Tanggal (YYYY-MM-DD)
-                    - time: Waktu (HH:MM:SS)
-                    - status: Status (on_time/late)
+                    - Nama kolom: employee_name/name/nama
+                    - Kolom tanggal: date/tanggal/tgl (format: YYYY-MM-DD)
+                    - Kolom waktu: time/waktu/jam (format: HH:MM:SS)
+                    - Opsional: status, shift
                     """)
-                    return
-                
-                # Show preview
-                st.subheader("Preview Data Import")
-                st.dataframe(import_df.head())
-                
-                # Confirm import
-                if st.button("✅ Konfirmasi Import", use_container_width=True):
-                    # Save to attendance directory
-                    filename = f"Attendance_{datetime.now().strftime('%d_%m_%y')}.csv"
-                    success, result = export_attendance_to_csv(import_df, filename)
+                else:
+                    # Show preview
+                    st.subheader("Preview Data Import")
+                    st.dataframe(import_df.head())
                     
-                    if success:
-                        st.success("✅ Data berhasil diimport!")
-                        st.rerun()  # Refresh page to show new data
-                    else:
-                        st.error(f"❌ Gagal import data: {result}")
+                    # Confirm import
+                    if st.button("✅ Konfirmasi Import", use_container_width=True):
+                        # Save to attendance directory
+                        filename = f"Attendance_{datetime.now().strftime('%y_%m_%d')}.csv"
+                        success, result = export_attendance_to_csv(import_df, filename)
+                        
+                        if success:
+                            st.success("✅ Data berhasil diimport!")
+                            st.rerun()  # Refresh page to show new data
+                        else:
+                            st.error(f"❌ Gagal import data: {result}")
                         
             except Exception as e:
                 st.error(f"❌ Error saat membaca file: {str(e)}")
@@ -721,10 +768,12 @@ def show_daily_statistics():
     
     # Show statistics
     st.markdown("---")
-    st.subheader("Statistik Kehadiran")
     
     df = get_all_attendance()
     if not df.empty:
+        # Normalize column names to lowercase
+        df.columns = [col.lower().strip() for col in df.columns]
+        
         # Check and rename columns if needed
         date_column = 'date' if 'date' in df.columns else 'Date'
         time_column = 'time' if 'time' in df.columns else 'Time'
@@ -735,42 +784,65 @@ def show_daily_statistics():
             return
 
         # Filter hanya baris dengan format tanggal valid sebelum parsing
-        df = df[df[date_column].astype(str).str.match(r'^(\d{4}-\d{2}-\d{2}|\d{2}_\d{2}_\d{2})$')]
-        df[date_column] = pd.to_datetime(df[date_column], errors='coerce')
-        df = df[df[date_column].notna()]
+        df = df[df[date_column].astype(str).str.match(r'^(\d{4}-\d{2}-\d{2}|\d{2}_\d{2}_\d{2})$', na=False)]
+        if not df.empty:
+            df[date_column] = pd.to_datetime(df[date_column], errors='coerce')
+            df = df[df[date_column].notna()]
         
-        # Daily attendance chart
-        daily_counts = df.groupby(date_column).size().reset_index(name='count')
-        fig = px.line(
-            daily_counts,
-            x=date_column,
-            y='count',
-            title='Tren Kehadiran Harian'
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Hourly distribution
-        if time_column in df.columns:
-            df['Hour'] = pd.to_datetime(df[time_column]).dt.hour
-            hourly_counts = df.groupby('Hour').size().reset_index(name='count')
+        # Only proceed if we have data
+        if not df.empty:
+            # Daily attendance chart - Updated untuk selalu menampilkan semua tanggal dengan data
+            daily_counts = df.groupby(date_column).size().reset_index(name='count')
+            daily_counts[date_column] = pd.to_datetime(daily_counts[date_column])
+            daily_counts = daily_counts.sort_values(date_column)
             
-            fig2 = px.bar(
-                hourly_counts,
-                x='Hour',
+            # Create line chart dengan marker untuk lebih jelas melihat tiap tanggal
+            fig = px.line(
+                daily_counts,
+                x=date_column,
                 y='count',
-                title='Distribusi Jam Kehadiran'
+                title='Tren Kehadiran (Real-time Update)',
+                labels={'count': 'Jumlah Kehadiran', date_column: 'Tanggal'},
+                markers=True,
+                line_shape='spline'
             )
-            st.plotly_chart(fig2, use_container_width=True)
             
-        # Status distribution if available
-        if 'status' in df.columns:
-            status_counts = df['status'].value_counts()
-            fig3 = px.pie(
-                values=status_counts.values,
-                names=status_counts.index,
-                title='Distribusi Status Kehadiran'
+            # Improve layout untuk readability
+            fig.update_layout(
+                hovermode='x unified',
+                height=450,
+                xaxis=dict(
+                    tickformat='%d-%m-%Y',
+                    tickangle=-45
+                ),
+                template='plotly_white'
             )
-            st.plotly_chart(fig3, use_container_width=True)
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Hourly distribution
+            if time_column in df.columns:
+                df['Hour'] = pd.to_datetime(df[time_column]).dt.hour
+                hourly_counts = df.groupby('Hour').size().reset_index(name='count')
+                hourly_counts = hourly_counts.sort_values('Hour')
+                
+                fig2 = px.bar(
+                    hourly_counts,
+                    x='Hour',
+                    y='count',
+                    title='⏰ Distribusi Jam Kehadiran',
+                    labels={'count': 'Jumlah', 'Hour': 'Jam'},
+                    color='count',
+                    color_continuous_scale='Blues'
+                )
+                
+                fig2.update_layout(
+                    height=450,
+                    hovermode='x unified',
+                    template='plotly_white'
+                )
+                
+                st.plotly_chart(fig2, use_container_width=True)
             
         # Show weekly summary
         st.subheader("Rekap Mingguan")
@@ -780,19 +852,28 @@ def show_daily_statistics():
         start_of_week = today - timedelta(days=today.weekday())
         dates_of_week = [(start_of_week + timedelta(days=x)).date() for x in range(7)]
         
-        # Create weekly summary
+        # Filter df untuk hanya data minggu ini (dan data valid dengan format tanggal)
+        df_weekly = df.copy() if not df.empty else pd.DataFrame()
+        
+        # Create weekly summary - UPDATED untuk real-time counting
         weekly_data = []
-        for date in dates_of_week:
-            day_data = df[df[date_column].dt.date == date]
+        for i, date in enumerate(dates_of_week):
+            if not df_weekly.empty:
+                # Filter data untuk tanggal spesifik
+                day_data = df_weekly[df_weekly[date_column].dt.date == date]
+            else:
+                day_data = pd.DataFrame()
             
-            # Calculate statistics
-            total_attendance = len(day_data)
-            on_time = len(day_data[day_data['status'] == 'on_time']) if 'status' in day_data.columns else 0
-            late = len(day_data[day_data['status'] == 'late']) if 'status' in day_data.columns else 0
+            # Calculate statistics - ALWAYS GET FRESH COUNT FROM CURRENT DAY'S DATA
+            total_attendance = len(day_data) if not day_data.empty else 0
+            on_time = len(day_data[day_data['status'] == 'on_time']) if (not day_data.empty and 'status' in day_data.columns) else 0
+            late = len(day_data[day_data['status'] == 'late']) if (not day_data.empty and 'status' in day_data.columns) else 0
+            
+            day_names = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu']
             
             weekly_data.append({
                 'Tanggal': date.strftime('%d %b %Y'),
-                'Hari': ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'][date.weekday()],
+                'Hari': day_names[date.weekday()],
                 'Total Hadir': total_attendance,
                 'Tepat Waktu': on_time,
                 'Terlambat': late
@@ -803,55 +884,15 @@ def show_daily_statistics():
         st.dataframe(
             weekly_df,
             column_config={
-                'Tanggal': st.column_config.TextColumn('Tanggal', width=700),
-                'Hari': st.column_config.TextColumn('Hari', width=500),
+                'Tanggal': st.column_config.TextColumn('Tanggal', width=200),
+                'Hari': st.column_config.TextColumn('Hari', width=150),
                 'Total Hadir': st.column_config.NumberColumn('Total Hadir', format='%d'),
                 'Tepat Waktu': st.column_config.NumberColumn('Tepat Waktu', format='%d'),
                 'Terlambat': st.column_config.NumberColumn('Terlambat', format='%d')
             },
-            width=900,
+            use_container_width=True,
             hide_index=True
         )
-        
-        # Show detailed data in expander
-        with st.expander("Lihat Detail Data"):
-            # Filter options
-            filter_type = st.selectbox(
-                "Filter Berdasarkan",
-                ["Hari Ini", "Minggu Ini", "Pilih Tanggal"]
-            )
-            
-            if filter_type == "Hari Ini":
-                filtered_df = df[df[date_column].dt.date == today.date()]
-            elif filter_type == "Minggu Ini":
-                filtered_df = df[
-                    (df[date_column].dt.date >= start_of_week.date()) & 
-                    (df[date_column].dt.date <= (start_of_week + timedelta(days=6)).date())
-                ]
-            else:  # Pilih Tanggal
-                selected_date = st.date_input("Pilih Tanggal")
-                filtered_df = df[df[date_column].dt.date == selected_date]
-            
-            if not filtered_df.empty:
-                st.dataframe(
-                    filtered_df.sort_values(by=date_column, ascending=False),
-                    use_container_width=True
-                )
-                
-                # Summary metrics
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Total Kehadiran", len(filtered_df))
-                with col2:
-                    on_time = len(filtered_df[filtered_df['status'] == 'on_time']) if 'status' in filtered_df.columns else 0
-                    st.metric("Tepat Waktu", on_time)
-                with col3:
-                    late = len(filtered_df[filtered_df['status'] == 'late']) if 'status' in filtered_df.columns else 0
-                    st.metric("Terlambat", late)
-            else:
-                st.info("Tidak ada data untuk periode yang dipilih")
-    else:
-        st.info("Belum ada data absensi tersedia")
 
 # The show_user_management function is now imported from new_user_management.py
 # The user management functionality has been moved to new_user_management.py

@@ -410,7 +410,6 @@ def process_recognized_face(recognized_name):
 
 def show_attendance():
     """Show attendance capture page"""
-    st.header("✅ Face Recognition Attendance")
     
     # Helper to manage external attendance window (main.py)
     def _start_external_attendance():
@@ -491,7 +490,6 @@ def show_attendance():
         """)
     
     with tab2:
-        st.subheader("📊 Riwayat Absensi")
         
         # Date selector for attendance history
         col1, col2 = st.columns([2,2])

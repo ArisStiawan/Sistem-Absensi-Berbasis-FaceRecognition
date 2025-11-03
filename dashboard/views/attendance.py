@@ -180,7 +180,6 @@ def start_attendance(mode="checkin"):
 
 def show_attendance():
     """Show attendance capture page"""
-    st.header("✅ Face Recognition Attendance")
     
     def _start_external_attendance():
         root = get_current_root_dir()
@@ -254,7 +253,6 @@ def show_attendance():
         """)
     
     with tab2:
-        st.subheader("📊 Riwayat Absensi")
         col1, _ = st.columns([2,2])
         with col1:
             selected_date = st.date_input(
