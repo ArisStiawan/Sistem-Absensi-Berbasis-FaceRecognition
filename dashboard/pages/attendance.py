@@ -260,11 +260,11 @@ def get_shift_status(recognized_name):
         with open(root_dir / "user_data.json", "r") as f:
             user_data = json.load(f)
             if recognized_name in user_data:
-                assigned_shift = user_data[recognized_name].get('shift', 'morning')
+                assigned_shift = user_data[recognized_name]['shift']  # Gunakan shift yang sudah terdaftar
             else:
-                assigned_shift = 'morning'  # default to morning if not found
-    except:
-        assigned_shift = 'morning'  # default to morning if file not found
+                raise ValueError(f"User {recognized_name} tidak ditemukan dalam data")
+    except Exception as e:
+        raise ValueError(f"Gagal mengambil data shift: {str(e)}")
         
     # Check if this is checkout time based on shift
     is_checkout = False

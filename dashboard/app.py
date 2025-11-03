@@ -377,8 +377,8 @@ def show_overview():
     
     if not df.empty:
         # Count by actual shift
-        morning_shift = df[df['actual_shift'] == 'morning']
-        night_shift = df[df['actual_shift'] == 'night']
+        morning_shift = df[df['assigned_shift'] == 'morning']
+        night_shift = df[df['assigned_shift'] == 'night']
         
         morning_count = len(morning_shift)
         night_count = len(night_shift)
@@ -656,21 +656,7 @@ def show_daily_statistics():
                     st.info("Silakan coba lagi atau pilih periode yang berbeda")
                 
                 filtered_df = df[mask]
-                
-                if not filtered_df.empty:
-                    csv = filtered_df.to_csv(index=False).encode('utf-8')
-                    st.download_button(
-                        "💾 Simpan CSV",
-                        csv,
-                        filename,
-                        "text/csv",
-                        key='download-csv'
-                    )
-                    st.success(f"✅ Data siap didownload: {filename}")
-                else:
-                    st.warning(f"⚠️ Tidak ada data untuk periode {period.lower()}")
-        else:
-            st.warning("⚠️ Tidak ada data untuk di-export")
+
     
     with col2:
         uploaded_file = st.file_uploader(

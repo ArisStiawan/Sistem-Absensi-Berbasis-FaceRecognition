@@ -32,7 +32,6 @@ def api_call(endpoint: str, method="get", **kwargs):
 
 
 def show_user_management():
-    st.header("👤 User Management")
 
     # Get user metadata from JSON first (this has shift and role info)
     user_meta = get_user_data() or {}
@@ -48,11 +47,11 @@ def show_user_management():
             user_name = user.get("name", "")
             if user_name in user_meta:
                 # Merge metadata (shift, role) from user_data.json
-                user["shift"] = user_meta[user_name].get("shift", user.get("shift", "morning"))
+                user["shift"] = user_meta[user_name].get("shift", user.get("shift"))
                 user["role"] = user_meta[user_name].get("role", user.get("role", "employee"))
             else:
                 # If not in user_meta, set default
-                user.setdefault("shift", "morning")
+                # Don't set default shift, use the one from registration
                 user.setdefault("role", "employee")
     else:
         # Fallback to local file scan if API isn't working

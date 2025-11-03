@@ -14,5 +14,13 @@
     "Aris": {
         "shift": "morning",
         "role": "supervisor"
+    },
+    "mek": {
+        "shift": "night",
+        "role": "employee"
+    },
+    "mbut": {
+        "shift": "night",
+        "role": "employee"
     }
 }
