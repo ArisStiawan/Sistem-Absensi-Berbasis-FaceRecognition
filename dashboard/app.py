@@ -562,22 +562,27 @@ def show_daily_statistics():
     col1, col2 = st.columns([1, 1])
     
     def prepare_attendance_data(df):
-        """Prepare attendance data by converting date/time columns"""
+        """Prepare attendance data by converting date/time columns, filter out invalid date rows"""
+        import pandas as pd
         try:
-            # Convert date column
-            if 'date' in df.columns:
-                df['date'] = pd.to_datetime(df['date'])
-            elif 'Date' in df.columns:
-                df['date'] = pd.to_datetime(df['Date'])
+            # Normalize column names
+            if 'Date' in df.columns and 'date' not in df.columns:
                 df = df.rename(columns={'Date': 'date'})
-            
-            # Convert time column
-            if 'time' in df.columns:
-                df['time'] = pd.to_datetime(df['time']).dt.time
-            elif 'Time' in df.columns:
-                df['time'] = pd.to_datetime(df['Time']).dt.time
+            if 'Time' in df.columns and 'time' not in df.columns:
                 df = df.rename(columns={'Time': 'time'})
-            
+
+            # Filter only rows where 'date' looks like a date (YYYY-MM-DD or YY_MM_DD)
+            if 'date' in df.columns:
+                # Only keep rows where date matches a date pattern
+                df = df[df['date'].astype(str).str.match(r'^(\d{4}-\d{2}-\d{2}|\d{2}_\d{2}_\d{2})$')]
+                df['date'] = pd.to_datetime(df['date'], errors='coerce')
+                df = df[df['date'].notna()]
+
+            # Convert time column if exists
+            if 'time' in df.columns:
+                # Only keep rows where time looks like HH:MM:SS
+                df = df[df['time'].astype(str).str.match(r'^\d{1,2}:\d{2}:\d{2}$')]
+                df['time'] = pd.to_datetime(df['time'], errors='coerce').dt.time
             return df, None
         except Exception as e:
             return None, str(e)
@@ -728,8 +733,11 @@ def show_daily_statistics():
             st.error("Date column not found in the data")
             st.write("Available columns:", df.columns.tolist())
             return
-            
-        df[date_column] = pd.to_datetime(df[date_column])
+
+        # Filter hanya baris dengan format tanggal valid sebelum parsing
+        df = df[df[date_column].astype(str).str.match(r'^(\d{4}-\d{2}-\d{2}|\d{2}_\d{2}_\d{2})$')]
+        df[date_column] = pd.to_datetime(df[date_column], errors='coerce')
+        df = df[df[date_column].notna()]
         
         # Daily attendance chart
         daily_counts = df.groupby(date_column).size().reset_index(name='count')

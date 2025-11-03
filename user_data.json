@@ -1,0 +1,18 @@
+{
+    "uan": {
+        "shift": "night",
+        "role": "supervisor"
+    },
+    "inu": {
+        "shift": "morning",
+        "role": "employee"
+    },
+    "upa": {
+        "shift": "morning",
+        "role": "employee"
+    },
+    "Aris": {
+        "shift": "morning",
+        "role": "supervisor"
+    }
+}
