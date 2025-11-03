@@ -105,10 +105,15 @@ class AttendanceDB:
         
     def validate_shift_time(self, check_time: time, employee_name: str) -> Tuple[str, str]:
         """Validate check time and return shift and status based on employee's registered shift"""
-        morning_start = time(8, 0)
-        morning_end = time(16, 0)
-        night_start = time(16, 0)
-        night_end = time(22, 0)
+        # Morning shift times
+        morning_early_start = time(6, 0)  # Can come as early as 6 AM
+        morning_end = time(16, 0)         # Shift end
+        
+        # Night shift times
+        night_early_start = time(15, 0)   # Can come as early as 3 PM
+        night_end = time(22, 0)           # Shift end
+
+        print(f"Debug - Check time: {check_time}, Employee: {employee_name}")  # Debug line
         
         # Get employee's registered shift
         conn = sqlite3.connect(str(self.db_path))
@@ -118,38 +123,57 @@ class AttendanceDB:
         conn.close()
         
         registered_shift = result[0] if result else None
+        print(f"Debug - Registered shift: {registered_shift}")  # Debug line
         
         if registered_shift == 'morning':
-            if morning_start <= check_time < morning_end:
-                if check_time > time(8, 15):  # 15 minutes tolerance
-                    return "morning", "late"
+            # Jika di luar rentang shift pagi (sebelum 06:00 atau setelah 16:00)
+            if check_time < morning_early_start or check_time >= morning_end:
+                return "morning", "off_shift"
+            
+            # Dalam jam kerja pagi
+            # Batas on time: 06:00 - 08:15
+            if time(6, 0) <= check_time <= time(8, 15):
                 return "morning", "on_time"
-            return "morning", "invalid"  # Wrong time for morning shift
+            # Setelah 08:15 dianggap telat
+            else:
+                return "morning", "late"
         
         elif registered_shift == 'night':
-            if night_start <= check_time < night_end:
-                if check_time > time(16, 15):  # 15 minutes tolerance
-                    return "night", "late"
+            # Jika di luar rentang shift malam (sebelum 15:00 atau setelah 22:00)
+            if check_time < night_early_start or check_time >= night_end:
+                return "night", "off_shift"
+            
+            # Dalam jam kerja malam
+            # Batas on time: 15:00 - 16:15
+            if time(15, 0) <= check_time <= time(16, 15):
                 return "night", "on_time"
-            return "night", "invalid"  # Wrong time for night shift
+            # Setelah 16:15 dianggap telat
+            else:
+                return "night", "late"
         
         else:
-            # Fallback if shift not registered
-            if morning_start <= check_time < morning_end:
+            # Jika shift tidak terdaftar, coba tentukan berdasarkan waktu check-in
+            print(f"Debug - No registered shift, determining based on time")  # Debug line
+            
+            if morning_early_start <= check_time < morning_end:
                 shift = "morning"
-                if check_time > time(8, 15):
-                    status = "late"
-                else:
+                # Batas on time: 06:00 - 08:15
+                if time(6, 0) <= check_time <= time(8, 15):
                     status = "on_time"
-            elif night_start <= check_time < night_end:
+                else:
+                    status = "late"
+            elif night_early_start <= check_time < night_end:
                 shift = "night"
-                if check_time > time(16, 15):
-                    status = "late"
-                else:
+                # Batas on time: 15:00 - 16:15
+                if time(15, 0) <= check_time <= time(16, 15):
                     status = "on_time"
+                else:
+                    status = "late"
             else:
                 shift = "unknown"
-                status = "invalid"
+                status = "off_shift"
+            
+            print(f"Debug - Determined: shift={shift}, status={status}")  # Debug line
             return shift, status
         
     def mark_attendance(self, employee_name: str, device_id: str):
@@ -157,7 +181,7 @@ class AttendanceDB:
         now = datetime.now()
         current_time = now.time()
         
-        shift, status = self.validate_shift_time(current_time)
+        shift, status = self.validate_shift_time(current_time, employee_name)
         
         conn = sqlite3.connect(str(self.db_path))
         c = conn.cursor()
@@ -393,6 +417,26 @@ class AttendanceDB:
         except Exception as e:
             print(f"Error in get_all_devices: {e}")
             return []
+            
+    def get_attendance_status(self, check_time: time, shift: str) -> str:
+        """Get attendance status based on time and shift.
+        Returns: 'on time', 'late', or 'off shift'
+        """
+        if shift == "morning":
+            if time(6, 0) <= check_time < time(16, 0):
+                if check_time <= time(8, 15):  # Batas telat 15 menit
+                    return "on time"
+                return "late"
+            return "off shift"
+            
+        elif shift == "night":
+            if time(15, 0) <= check_time < time(22, 0):
+                if check_time <= time(16, 15):  # Batas telat 15 menit
+                    return "on time"
+                return "late"
+            return "off shift"
+            
+        return "off shift"  # Unknown shift
 
     def get_registered_users(self):
         """Get list of registered users"""
@@ -408,24 +452,39 @@ class AttendanceDB:
                     if item.name.startswith('__') or item.name.startswith('.'):
                         continue
                         
+                    # Load user data from user_data.json
+                    user_data_file = self.root_dir / "user_data.json"
+                    user_data = {}
+                    if user_data_file.exists():
+                        try:
+                            import json
+                            with open(user_data_file, 'r') as f:
+                                user_data = json.load(f)
+                        except Exception as e:
+                            print(f"Error reading user_data.json: {e}")
+                    
                     if item.is_dir():
                         # Check if directory contains required images
                         center_image = item / 'center.png'
                         if center_image.exists():
                             print(f"Adding directory user: {item.name}")
+                            # Get user data if available
+                            user_info = user_data.get(item.name, {})
                             users.append({
                                 "name": item.name,
-                                "role": "Employee",
-                                "shift": "Morning",
+                                "role": user_info.get("role", "Employee"),
+                                "shift": user_info.get("shift", "morning"),
                                 "image_path": str(center_image),
                                 "type": "directory"
                             })
                     elif item.suffix.lower() == '.png':
                         print(f"Adding file user: {item.stem}")
+                        # Get user data if available
+                        user_info = user_data.get(item.stem, {})
                         users.append({
                             "name": item.stem,
-                            "role": "Employee",
-                            "shift": "Morning",
+                            "role": user_info.get("role", "Employee"),
+                            "shift": user_info.get("shift", "morning"),
                             "image_path": str(item),
                             "type": "file"
                         })

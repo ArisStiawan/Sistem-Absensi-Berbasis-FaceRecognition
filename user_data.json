@@ -1,93 +1,25 @@
 {
-    "michael": {
+    "uan": {
+        "shift": "night",
+        "role": "supervisor"
+    },
+    "inu": {
         "shift": "morning",
         "role": "employee"
     },
-    "mikhael": {
+    "upa": {
         "shift": "morning",
         "role": "employee"
     },
-    "sheva": {
+    "Aris": {
+        "shift": "morning",
+        "role": "supervisor"
+    },
+    "mek": {
         "shift": "night",
         "role": "employee"
     },
-    "sep": {
-        "shift": "night",
-        "role": "employee"
-    },
-    "gangkipik": {
-        "shift": "morning",
-        "role": "employee"
-    },
-    "qwerty": {
-        "shift": "night",
-        "role": "employee"
-    },
-    "sulis": {
-        "shift": "night",
-        "role": "employee"
-    },
-    "John Doe": {
-        "shift": "morning",
-        "role": "employee"
-    },
-    "kipek": {
-        "shift": "morning",
-        "role": "employee"
-    },
-    "kipik": {
-        "shift": "morning",
-        "role": "employee"
-    },
-    "lololo": {
-        "shift": "morning",
-        "role": "employee"
-    },
-    "on ol": {
-        "shift": "morning",
-        "role": "employee"
-    },
-    "GENGKIPIK": {
-        "shift": "night",
-        "role": "employee"
-    },
-    "jua": {
-        "shift": "morning",
-        "role": "employee"
-    },
-    "po": {
-        "shift": "morning",
-        "role": "employee"
-    },
-    "lpl": {
-        "shift": "morning",
-        "role": "employee"
-    },
-    "huaa": {
-        "shift": "morning",
-        "role": "employee"
-    },
-    "aries\\": {
-        "shift": "morning",
-        "role": "employee"
-    },
-    "Suka": {
-        "shift": "morning",
-        "role": "employee"
-    },
-    "mekel": {
-        "shift": "night",
-        "role": "employee"
-    },
-    "arisue": {
-        "shift": "night",
-        "role": "employee"
-    },
-    "sum": {
-        "shift": "night",
-        "role": "employee"
-    },
-    "nua": {
+    "mbut": {
         "shift": "night",
         "role": "employee"
     }

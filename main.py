@@ -149,29 +149,6 @@ else:
     stream = None
     face_detector = None
 
-# Function to check if mouse click is within button bounds
-def is_mouse_click_in_button(x, y, button_pos):
-    bx, by, bw, bh = button_pos
-    return bx <= x <= bx + bw and by <= y <= by + bh
-
-# Mouse callback function
-def mouse_callback(event, x, y, flags, param):
-    if event == cv2.EVENT_LBUTTONDOWN:
-        button_pos = param
-        if is_mouse_click_in_button(x, y, button_pos):
-            print("\nStarting registration process...")
-            cap.release()
-            cv2.destroyAllWindows()
-            # Use subprocess.run to wait for the process to complete
-            import subprocess
-            import sys
-            try:
-                subprocess.run([sys.executable, "initial_data_capture.py"], check=True)
-            except subprocess.CalledProcessError as e:
-                print(f"Error running registration: {e}")
-            global running
-            running = False
-
 # Camera capture 
 cap = cv2.VideoCapture(0)
 
@@ -199,26 +176,15 @@ cv2.setWindowProperty('Attendance System', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_F
 window_width = screen_width
 window_height = screen_height
 
-# Detect platform and set button size accordingly
+# Detect platform
 import platform
 if platform.system() == 'Linux':  # Jetson Nano
-    button_width = 160  # Smaller width for Jetson
-    button_height = 50  # Smaller height for Jetson
-    padding = 20  # Less padding for Jetson
     font_scale = 0.8  # Smaller text for Jetson
 else:  # Windows or other platforms
-    button_width = 300  # Larger for desktop
-    button_height = 80  # Larger for desktop
-    padding = 50  # More padding for desktop
     font_scale = 1.5  # Larger text for desktop
 
-# Position the button in the bottom left corner
-button_pos = (padding, window_height - button_height - padding, button_width, button_height)
 # Store font_scale for later use
 button_font_scale = font_scale
-
-# Set mouse callback
-cv2.setMouseCallback('Attendance System', mouse_callback, button_pos)
 
 last_detected_name = None
 last_detect_time = 0
@@ -229,12 +195,6 @@ while running:
     success, img = cap.read()
     if not success:
         break
-        
-    # Draw registration button
-    x, y, w, h = button_pos
-    cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), cv2.FILLED)
-    cv2.putText(img, "Register New", (x + 5, y + 20),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
     # Process image with GPU acceleration if available
     if cv2.cuda.getCudaEnabledDeviceCount() > 0:
@@ -298,20 +258,25 @@ while running:
                     cv2.rectangle(img, (left, bottom - 35), (right, bottom), (0, 255, 0), cv2.FILLED)
                     
                     # Try to mark attendance and get status
-                    current_shift = attendance_tracker._get_current_shift()
-                    if current_shift:
+                    # Get ASSIGNED shift for display (not time-based shift)
+                    assigned_shift = attendance_tracker.get_assigned_shift(name)
+                    if assigned_shift is None:
+                        # If no assigned shift, fall back to current shift
+                        assigned_shift = attendance_tracker._get_current_shift()
+                    
+                    if assigned_shift:
                         if attendance_tracker.can_mark_attendance(name):
                             marked = markAttendance(name)
                             if marked:
-                                status = f"✓ {current_shift.upper()} Shift"
+                                status = f"✓ {assigned_shift.upper()} Shift"
                             else:
-                                status = f"{current_shift.upper()} Shift - Already Marked"
+                                status = f"{assigned_shift.upper()} Shift - Already Marked"
                         else:
                             if name in attendance_tracker.marked_shifts and \
-                               current_shift in attendance_tracker.marked_shifts[name]:
-                                status = f"{current_shift.upper()} Shift - Already Marked"
+                               assigned_shift in attendance_tracker.marked_shifts[name]:
+                                status = f"{assigned_shift.upper()} Shift - Already Marked"
                             else:
-                                status = f"{current_shift.upper()} Shift"
+                                status = f"{assigned_shift.upper()} Shift"
                     else:
                         status = "Outside shift hours"
                     
@@ -338,18 +303,6 @@ while running:
     
     # Place the resized image in the center of the canvas
     canvas[y_offset:y_offset+int(h*scale), x_offset:x_offset+int(w*scale)] = img
-    
-    # Draw registration button on the canvas
-    x, y, w, h = button_pos
-    cv2.rectangle(canvas, (x, y), (x + w, y + h), (0, 255, 0), cv2.FILLED)
-    # Calculate text size and position to center it in the button
-    thickness = 2 if platform.system() == 'Linux' else 3  # Thinner text on Jetson
-    text = "Register New"
-    (text_width, text_height), baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, button_font_scale, thickness)
-    text_x = x + (w - text_width) // 2
-    text_y = y + (h + text_height) // 2
-    cv2.putText(canvas, text, (text_x, text_y),
-                cv2.FONT_HERSHEY_SIMPLEX, button_font_scale, (255, 255, 255), thickness)
     
     # Display the result
     cv2.imshow('Attendance System', canvas)

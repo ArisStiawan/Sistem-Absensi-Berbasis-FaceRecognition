@@ -144,6 +144,44 @@ async def get_all_attendance():
         logger.error(f"Error getting all attendance: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/attendance")
+async def mark_attendance(data: dict):
+    """Mark attendance from face recognition engine
+    
+    Request body:
+    {
+        "name": "employee_name",
+        "time": "HH:MM:SS",
+        "date": "YYYY-MM-DD", 
+        "shift": "morning or night",
+        "status": "on_time or off_shift"
+    }
+    """
+    try:
+        name = data.get("name")
+        time_str = data.get("time")
+        date_str = data.get("date")
+        shift = data.get("shift")
+        status = data.get("status")
+        
+        logger.info(f"Marking attendance: {name} at {time_str} on {date_str} (Shift: {shift}, Status: {status})")
+        # Just log the attendance marking - the main recording is done in CSV
+        # This endpoint is for API consistency and potential future database integration
+        return {
+            "success": True,
+            "message": f"Attendance marked for {name}",
+            "data": {
+                "name": name,
+                "time": time_str,
+                "date": date_str,
+                "shift": shift,
+                "status": status
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error marking attendance: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # User management endpoints (admin only)
 @app.post("/users/add", response_model=User)
 async def create_user(user: User, current_user: User = Depends(get_current_active_user)):
