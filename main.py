@@ -3,6 +3,19 @@ import numpy as np
 import os
 import time
 import warnings
+from pathlib import Path
+
+# Import sound utility
+sound_module_path = Path(__file__).parent / 'dashboard' / 'utils' / 'sound.py'
+if sound_module_path.exists():
+    import sys
+    sys.path.append(str(Path(__file__).parent / 'dashboard'))
+    from utils.sound import play_sound, initialize_default_sounds
+    # Initialize sound system
+    initialize_default_sounds()
+else:
+    print("Warning: Sound module not found at", sound_module_path)
+    def play_sound(sound_type): pass  # Dummy function if sound module not available
 
 # Suppress pkg_resources deprecation warning
 warnings.filterwarnings('ignore', category=UserWarning, module='pkg_resources')
@@ -68,10 +81,6 @@ def identifyEncodings(images, classNames):
     return encodeList
 
 from attendance_tracker import AttendanceTracker
-from dashboard.utils.sound import play_sound, initialize_default_sounds
-
-# Initialize sounds
-initialize_default_sounds()
 
 # Initialize the attendance tracker
 attendance_tracker = AttendanceTracker()
@@ -272,27 +281,25 @@ while running:
                         if attendance_tracker.can_mark_attendance(name):
                             marked = markAttendance(name)
                             if marked:
-                                # Check if it's on time or late
-                                current_time = datetime.now().time()
-                                if (assigned_shift == 'morning' and current_time <= datetime.strptime('08:15', '%H:%M').time()) or \
-                                   (assigned_shift == 'night' and current_time <= datetime.strptime('16:15', '%H:%M').time()):
-                                    # On time
-                                    play_sound('success')
-                                    status = f"✓ {assigned_shift.upper()} Shift - ON TIME"
-                                else:
-                                    # Late
-                                    play_sound('notification')
-                                    status = f"✓ {assigned_shift.upper()} Shift - LATE"
+                                status = f"✓ {assigned_shift.upper()} Shift"
+                                # Play success sound for new attendance
+                                play_sound('success')
                             else:
                                 status = f"{assigned_shift.upper()} Shift - Already Marked"
+                                # Play notification sound for repeat detection
+                                play_sound('notification')
                         else:
                             if name in attendance_tracker.marked_shifts and \
                                assigned_shift in attendance_tracker.marked_shifts[name]:
                                 status = f"{assigned_shift.upper()} Shift - Already Marked"
+                                # Play notification sound
+                                play_sound('notification')
                             else:
                                 status = f"{assigned_shift.upper()} Shift"
                     else:
                         status = "Outside shift hours"
+                        # Play notification sound for out of shift
+                        play_sound('notification')
                     
                     # Display name on top line
                     cv2.putText(img, name, (left + 6, bottom - 25),
