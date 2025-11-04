@@ -10,7 +10,6 @@ import sys
 import subprocess
 import shutil
 import json
-from utils import sound
 import cv2
 import numpy as np
 import face_recognition
@@ -452,10 +451,16 @@ def show_overview():
                     st.warning("Detail Keterlambatan:")
                     # Calculate late minutes for each entry
                     late_df['jam_masuk'] = pd.to_datetime(late_df['check_in']).dt.strftime('%H:%M')
-                    late_df['keterlambatan'] = (pd.to_datetime(late_df['check_in']).dt.hour * 60 + 
-                                              pd.to_datetime(late_df['check_in']).dt.minute - 
-                                              (8 * 60 + 15))  # Minutes after 08:15
-                    late_df['keterlambatan'] = late_df['keterlambatan'].astype(str) + ' menit'
+
+                    # Calculate minutes late
+                    minutes_late = (pd.to_datetime(late_df['check_in']).dt.hour * 60 + 
+                                    pd.to_datetime(late_df['check_in']).dt.minute - 
+                                    (8 * 60 + 15))  # Minutes after 08:15
+
+                    # Convert to hours and minutes format (HH:MM)
+                    hours = minutes_late // 60
+                    minutes = minutes_late % 60
+                    late_df['keterlambatan'] = hours.astype(str).str.zfill(2) + ':' + minutes.astype(str).str.zfill(2)
                     # Display table
                     st.dataframe(
                         late_df[['employee_name', 'jam_masuk', 'keterlambatan']].rename(

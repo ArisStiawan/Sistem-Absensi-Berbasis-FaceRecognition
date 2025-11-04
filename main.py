@@ -279,27 +279,35 @@ while running:
                     
                     if assigned_shift:
                         if attendance_tracker.can_mark_attendance(name):
-                            marked = markAttendance(name)
+                            marked, attendance_status = markAttendance(name)
                             if marked:
-                                status = f"✓ {assigned_shift.upper()} Shift"
-                                # Play success sound for new attendance
-                                play_sound('success')
+                                # HANYA BUNYI SEKALI saat attendance berhasil dicatat
+                                # Play sound based on attendance status
+                                if attendance_status == 'on_time':
+                                    status = f"✓ {assigned_shift.upper()} Shift - ON TIME"
+                                    play_sound('success')
+                                elif attendance_status == 'late':
+                                    status = f"⚠ {assigned_shift.upper()} Shift - LATE"
+                                    play_sound('notification')
+                                elif attendance_status == 'off_shift':
+                                    status = f"⚠ {assigned_shift.upper()} Shift - OFF SHIFT"
+                                    play_sound('notification')
+                                else:
+                                    status = f"✓ {assigned_shift.upper()} Shift"
+                                    play_sound('success')
                             else:
+                                # Tidak berbunyi saat gagal mark (dalam cooldown)
                                 status = f"{assigned_shift.upper()} Shift - Already Marked"
-                                # Play notification sound for repeat detection
-                                play_sound('notification')
                         else:
+                            # Tidak berbunyi saat sudah pernah absen
                             if name in attendance_tracker.marked_shifts and \
                                assigned_shift in attendance_tracker.marked_shifts[name]:
                                 status = f"{assigned_shift.upper()} Shift - Already Marked"
-                                # Play notification sound
-                                play_sound('notification')
                             else:
                                 status = f"{assigned_shift.upper()} Shift"
                     else:
+                        # Tidak berbunyi saat di luar jam shift
                         status = "Outside shift hours"
-                        # Play notification sound for out of shift
-                        play_sound('notification')
                     
                     # Display name on top line
                     cv2.putText(img, name, (left + 6, bottom - 25),

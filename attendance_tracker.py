@@ -187,9 +187,12 @@ class AttendanceTracker:
         return True
         
     def mark_attendance(self, name):
-        """Mark attendance and record with assigned shift, not time-based shift"""
+        """
+        Mark attendance and record with assigned shift, not time-based shift
+        Returns: (success: bool, status: str) - success flag and attendance status
+        """
         if not self.can_mark_attendance(name):
-            return False
+            return False, None
             
         current_time = time.time()
         self.last_attendance[name] = current_time
@@ -244,13 +247,13 @@ class AttendanceTracker:
                     }
                 )
                 if response.status_code == 200:
-                    print(f"Attendance marked for {name} at {time_str} (Shift: {assigned_shift})")
+                    print(f"Attendance marked for {name} at {time_str} (Shift: {assigned_shift}, Status: {status})")
             except requests.RequestException:
                 # Silently continue if API is not available
                 pass
             
-            return True
+            return True, status
             
         except Exception as e:
             print(f"Error marking attendance: {e}")
-            return False
+            return False, None

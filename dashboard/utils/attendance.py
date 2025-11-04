@@ -1,43 +1,7 @@
 from datetime import datetime, time
 from typing import Tuple
 
-def determine_attendance_status(checkin_time: datetime, assigned_shift: str) -> str:
-    """
-    Tentukan status absensi berdasarkan assigned shift dan waktu check-in.
-    
-    Args:
-        checkin_time: datetime object saat check-in
-        assigned_shift: "morning" atau "night" - shift yang terdaftar user
-    
-    Returns:
-        str: "on_time" atau "late"
-    
-    Logic untuk Morning Shift (08:00-17:00):
-        - on_time: check-in < 08:00
-        - late: check-in >= 08:00
-        
-    Logic untuk Night Shift (17:00-22:00):
-        - on_time: check-in < 17:00 (termasuk 16:00-16:59 early arrival)
-        - late: check-in >= 17:00
-    """
-    hour = checkin_time.hour
-    
-    if assigned_shift == "morning":
-        # Morning shift on_time hanya jika < 08:00
-        if hour < 8:
-            return "on_time"
-        else:
-            return "late"
-    
-    elif assigned_shift == "night":
-        # Night shift on_time jika < 17:00 (termasuk early arrival 16:00-16:59)
-        if hour < 17:
-            return "on_time"
-        else:
-            return "late"
-    
-    # Default fallback
-    return "late"
+
 
 
 def get_final_status(user_assigned_shift: str, checkin_time: datetime) -> str:
