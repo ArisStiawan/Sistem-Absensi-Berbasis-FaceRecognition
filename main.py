@@ -68,6 +68,10 @@ def identifyEncodings(images, classNames):
     return encodeList
 
 from attendance_tracker import AttendanceTracker
+from dashboard.utils.sound import play_sound, initialize_default_sounds
+
+# Initialize sounds
+initialize_default_sounds()
 
 # Initialize the attendance tracker
 attendance_tracker = AttendanceTracker()
@@ -268,7 +272,17 @@ while running:
                         if attendance_tracker.can_mark_attendance(name):
                             marked = markAttendance(name)
                             if marked:
-                                status = f"✓ {assigned_shift.upper()} Shift"
+                                # Check if it's on time or late
+                                current_time = datetime.now().time()
+                                if (assigned_shift == 'morning' and current_time <= datetime.strptime('08:15', '%H:%M').time()) or \
+                                   (assigned_shift == 'night' and current_time <= datetime.strptime('16:15', '%H:%M').time()):
+                                    # On time
+                                    play_sound('success')
+                                    status = f"✓ {assigned_shift.upper()} Shift - ON TIME"
+                                else:
+                                    # Late
+                                    play_sound('notification')
+                                    status = f"✓ {assigned_shift.upper()} Shift - LATE"
                             else:
                                 status = f"{assigned_shift.upper()} Shift - Already Marked"
                         else:
