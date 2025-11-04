@@ -1,12 +1,12 @@
 import streamlit as st
 from pathlib import Path
 import subprocess
-import time
 import sys
 import os
 import csv
 from datetime import datetime
 from utils import sound
+from utils.attendance import get_final_status
 import pandas as pd
 import traceback
 import io
@@ -190,69 +190,15 @@ def validate_attendance_dataframe(df):
         print(f"Error in validate_attendance_dataframe: {e}")
         return df
 
-def get_current_attendance():
-    """Get today's attendance records"""
-    try:
-        current_date = datetime.now().strftime("%y_%m_%d")
-        attendance_file = get_current_root_dir() / "Attendance_Entry" / f"Attendance_{current_date}.csv"
-        
-        df = safe_read_attendance_csv(attendance_file)
-        
-        if df is None:
-            return []
-        
-        df = validate_attendance_dataframe(df)
-        return df.to_dict('records')
-        
-    except Exception as e:
-        print(f"Error reading attendance: {e}")
-        traceback.print_exc()
-        return []
-
-def check_registration():
-    """Check if any users are registered in the system"""
-    attendance_dir = get_current_root_dir() / "Attendance_data"
-    if not attendance_dir.exists():
-        return False
-    
-    # Check for any user folders or files
-    try:
-        items = list(attendance_dir.iterdir())
-        return len(items) > 0
-    except:
-        return False
-
-def start_attendance(mode="checkin"):
-    """
-    This is a placeholder function to maintain compatibility with existing code.
-    The actual attendance is now handled directly within the Streamlit interface.
-    """
-    return True
-
 def get_shift_status(recognized_name):
     """
-    Get user's shift and attendance status
+    Get user's shift and attendance status for recording
     Returns: (assigned_shift, current_shift, status, is_checkout)
+    
+    Status hanya bisa: on_time, late, off_shift, checkout, outside_hours, already_checkedin, no_checkin
     """
     now = datetime.now()
     current_hour = now.hour
-    
-    # Define shift times
-    morning_start = 8    # 08:00
-    morning_end = 17     # 17:00
-    night_start = 17     # 17:00
-    night_end = 22      # 22:00
-    
-    # Toleransi untuk shift malam yang datang lebih awal
-    night_early_start = 16  # Boleh datang 1 jam sebelum shift
-    
-    # Determine current shift
-    if morning_start <= current_hour < morning_end:
-        current_shift = "morning"
-    elif night_early_start <= current_hour <= night_end:  # Diperluas untuk toleransi
-        current_shift = "night"
-    else:
-        current_shift = "outside_hours"  # Di luar jam kerja
     
     # Get user's assigned shift from registration data
     root_dir = get_current_root_dir()
@@ -261,18 +207,19 @@ def get_shift_status(recognized_name):
         with open(root_dir / "user_data.json", "r") as f:
             user_data = json.load(f)
             if recognized_name in user_data:
-                assigned_shift = user_data[recognized_name]['shift']  # Gunakan shift yang sudah terdaftar
+                assigned_shift = user_data[recognized_name]['shift']
             else:
                 raise ValueError(f"User {recognized_name} tidak ditemukan dalam data")
     except Exception as e:
         raise ValueError(f"Gagal mengambil data shift: {str(e)}")
-        
-    # Check if this is checkout time based on shift
-    is_checkout = False
-    if current_shift == "morning" and current_hour >= 16:  # Bisa checkout mulai 16:00
-        is_checkout = True
-    elif current_shift == "night" and current_hour >= 21:  # Bisa checkout mulai 21:00
-        is_checkout = True
+    
+    # Determine current shift based on hour
+    if 8 <= current_hour < 17:
+        current_shift = "morning"
+    elif 16 <= current_hour < 22:
+        current_shift = "night"
+    else:
+        current_shift = "outside_hours"
     
     # Check if already checked in today
     has_checked_in = False
@@ -284,41 +231,19 @@ def get_shift_status(recognized_name):
             if 'Name' in df.columns:
                 has_checked_in = recognized_name in df['Name'].values
     except:
-        pass  # Assume not checked in if can't read file
-    
-    # Determine status based on time and check-in status
-    if current_shift == "outside_hours":
-        status = "outside_hours"  # Di luar jam kerja
-    elif is_checkout:
-        if not has_checked_in:
-            status = "no_checkin"  # Trying to checkout without checkin
-        else:
-            status = "checkout"
-    else:
-        # For check-in
-        if has_checked_in:
-            status = "already_checkedin"
-        else:
-            # Cek kesesuaian shift
-            shift_match = assigned_shift == current_shift
-            
-            if current_shift == "morning" and assigned_shift == "night":
-                status = "wrong_shift"  # User shift malam mencoba absen di pagi hari
-            elif current_shift == "night" and assigned_shift == "morning":
-                # Toleransi khusus untuk shift pagi yang lembur/overlap ke shift malam
-                if current_hour < night_start:  # Sebelum jam 17:00
-                    status = "overtime_checkin"
-                else:
-                    status = "wrong_shift"
-            else:
-                # Normal check-in sesuai shift
-                if current_shift == "morning":
-                    status = "on_time" if current_hour <= 8 else "late"
-                else:  # night shift
-                    # Toleransi untuk shift malam yang datang lebih awal
-                    status = "on_time" if current_hour <= 17 else "late"
+        pass
         
-    return assigned_shift, current_shift, status, is_checkout
+    # Determine status
+    if current_shift == "outside_hours":
+        status = "outside_hours"
+    elif has_checked_in:
+        status = "already_checkedin"
+    else:
+        # Tentukan status menggunakan utility
+        # Status bisa: on_time, late, off_shift
+        status = get_final_status(assigned_shift, now)
+    
+    return assigned_shift, current_shift, status
 
 def process_recognized_face(recognized_name):
     """
@@ -352,56 +277,48 @@ def process_recognized_face(recognized_name):
                 now.strftime('%H:%M:%S'),
                 now.strftime('%Y-%m-%d'),
                 current_shift,
-                status
+                status.lower()  # Always store status as lowercase
             ])
         
         # Prepare status message based on attendance type and status
+        # HANYA BUNYI untuk status yang benar-benar dicatat (on_time, late, off_shift)
         message = ""
         if status == "outside_hours":
             message = f"❌ Di luar jam kerja!\nNama: {recognized_name}\n\nJam kerja:\nShift Pagi: 08:00 - 17:00\nShift Malam: 17:00 - 22:00"
-        elif status == "wrong_shift":
-            message = (f"⚠️ Ketidaksesuaian Shift!\n"
+            # Tidak berbunyi untuk outside_hours karena tidak dicatat
+        elif status == "off_shift":
+            message = (f"⚠️ Luar Shift Anda!\n"
                      f"Nama: {recognized_name}\n"
                      f"Anda terdaftar di shift {assigned_shift.upper()}\n"
-                     f"Jam kerja Anda:\n"
-                     f"{'08:00 - 17:00' if assigned_shift == 'morning' else '17:00 - 22:00'}")
-        elif status == "overtime_checkin":
-            message = (f"⚠️ Perhatian - Overtime Check-in\n"
-                     f"Nama: {recognized_name}\n"
-                     f"Anda melakukan check-in di luar shift normal Anda (Shift {assigned_shift.upper()})\n"
-                     f"Absensi akan dicatat sebagai overtime/lembur.")
+                     f"Waktu shift Anda:\n"
+                     f"{'Pagi: 08:00 - 17:00' if assigned_shift == 'morning' else 'Malam: 17:00 - 22:00'}\n"
+                     f"Absensi tetap dicatat dengan status 'off_shift'")
             try:
+                # Bunyi karena dicatat ke CSV
                 sound.play_sound('notification')
             except:
                 pass
-        elif status == "no_checkin":
-            message = f"❌ Tidak dapat melakukan checkout!\nNama: {recognized_name}\nAnda belum melakukan check-in hari ini."
         elif status == "already_checkedin":
             message = f"⚠️ Sudah absen masuk!\nNama: {recognized_name}\nSilakan lakukan checkout di jam pulang."
-        elif status == "checkout":
-            message = f"✅ Checkout berhasil!\nNama: {recognized_name}\nTerima kasih atas kerja kerasnya hari ini!"
+            # Tidak berbunyi untuk already_checkedin karena tidak dicatat ulang
+        elif status == "on_time":
+            batas = "08:00" if current_shift == "morning" else "17:00"
+            message = f"✅ Check-in tepat waktu!\nNama: {recognized_name}\nShift: {current_shift.upper()}\nBatas: {batas}"
             try:
+                # Bunyi sukses karena on_time
                 sound.play_sound('success')
             except:
                 pass
+        elif status == "late":
+            batas = "08:00" if current_shift == "morning" else "17:00"
+            message = f"⚠️ Check-in terlambat!\nNama: {recognized_name}\nShift: {current_shift.upper()}\nBatas: {batas}"
+            try:
+                # Bunyi notifikasi karena late
+                sound.play_sound('notification')
+            except:
+                pass
         else:
-            time_status = "tepat waktu" if status == "on_time" else "terlambat"
-            shift_info = ""
-            if assigned_shift != current_shift and status != "overtime_checkin":
-                shift_info = f"\n⚠️ Anda terdaftar di shift {assigned_shift} tapi melakukan absensi di shift {current_shift}"
-            
-            batas_telat = "08:00" if current_shift == "morning" else "17:00"
-            message = f"✅ Check-in berhasil!\nNama: {recognized_name}\nStatus: {time_status} (Batas: {batas_telat}){shift_info}"
-            if status == "on_time":
-                try:
-                    sound.play_sound('success')
-                except:
-                    pass
-            else:
-                try:
-                    sound.play_sound('notification')
-                except:
-                    pass
+            message = f"ℹ️ Absensi tercatat\nNama: {recognized_name}\nStatus: {status}"
                 
         return message
     except Exception as e:
@@ -409,9 +326,28 @@ def process_recognized_face(recognized_name):
         traceback.print_exc()
         return f"❌ Error: {str(e)}"
 
+def check_registration():
+    """
+    Check if any users are registered in the system
+    Returns: bool - True if users exist, False otherwise
+    """
+    try:
+        root_dir = get_current_root_dir()
+        user_data_file = root_dir / "user_data.json"
+        
+        if not user_data_file.exists():
+            return False
+        
+        import json
+        with open(user_data_file, "r") as f:
+            user_data = json.load(f)
+            return len(user_data) > 0
+    except:
+        return False
+
 def show_attendance():
     """Show attendance capture page"""
-    st.header("✅ Face Recognition Attendance")
+    st.header("Attendance")
     
     # Helper to manage external attendance window (main.py)
     def _start_external_attendance():

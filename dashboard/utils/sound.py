@@ -23,7 +23,7 @@ def play_sound(sound_type: str):
     Args:
         sound_type: Type of sound to play ('success', 'error', 'notification')
     """
-    try:
+    try:                                                                                    
         if sound_type in SOUNDS and SOUNDS[sound_type].exists():
             sound = pygame.mixer.Sound(str(SOUNDS[sound_type]))
             sound.play()

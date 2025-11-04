@@ -1,63 +1,52 @@
 from datetime import datetime, time
 from typing import Tuple
 
-def is_within_shift_hours(current_time: datetime, shift: str) -> bool:
-    """Check if current time is within shift hours"""
-    current_hour = current_time.hour
-    
-    if shift == "morning":
-        return 8 <= current_hour < 17
-    elif shift == "night":
-        return 17 <= current_hour < 22
-    return False
 
-def get_shift_status(checkin_time: datetime, current_time: datetime = None) -> Tuple[str, str]:
+
+
+def get_final_status(user_assigned_shift: str, checkin_time: datetime) -> str:
     """
-    Get the shift and attendance status based on check-in time
+    Dapatkan status final absensi dengan mempertimbangkan assigned shift.
+    
+    Args:
+        user_assigned_shift: Shift yang terdaftar user ("morning" atau "night")
+        checkin_time: datetime saat check-in
     
     Returns:
-        Tuple[str, str]: (shift_type, status)
-        shift_type: "morning" or "night"
-        status: "early", "ontime", "late", or "wrong_shift"
-    """
-    if current_time is None:
-        current_time = datetime.now()
-        
-    checkin_hour = checkin_time.hour
+        str: "on_time", "late", atau "off_shift"
     
-    # Morning shift (8:00 - 17:00)
-    if 5 <= checkin_hour < 17:
-        if checkin_hour < 8:
-            return "morning", "early"
-        elif checkin_hour == 8:
-            return "morning", "ontime"
-        else:
-            return "morning", "late"
-            
-    # Night shift (17:00 - 22:00)
-    elif 17 <= checkin_hour < 22:
-        if checkin_hour == 17:
-            return "morning", "ontime"
-        else:
-            return "night", "late"
-            
-    return "unknown", "wrong_shift"
-
-def should_auto_checkout(checkin_time: datetime, current_time: datetime = None) -> bool:
-    """
-    Determine if user should be automatically checked out based on shift end time
-    """
-    if current_time is None:
-        current_time = datetime.now()
+    Logic:
+        Morning user (assigned_shift="morning"):
+            - < 08:00 → on_time
+            - 08:00-16:59 → late
+            - >= 17:00 → off_shift
         
-    shift, _ = get_shift_status(checkin_time)
+        Night user (assigned_shift="night"):
+            - < 16:00 → off_shift (pagi)
+            - 16:00-16:59 → on_time (early arrival)
+            - 17:00-21:59 → late
+            - >= 22:00 → off_shift
+    """
+    hour = checkin_time.hour
     
-    if shift == "morning":
-        shift_end = time(17, 0)  # 17:00
-    elif shift == "night":
-        shift_end = time(22, 0)  # 22:00
-    else:
-        return False
-        
-    current_time_only = current_time.time()
-    return current_time_only >= shift_end
+    if user_assigned_shift == "morning":
+        # Morning shift user
+        if hour < 8:
+            return "on_time"
+        elif hour < 17:
+            return "late"
+        else:
+            return "off_shift"
+    
+    elif user_assigned_shift == "night":
+        # Night shift user
+        if hour < 16:
+            return "off_shift"
+        elif hour < 17:
+            return "on_time"
+        elif hour < 22:
+            return "late"
+        else:
+            return "off_shift"
+    
+    return "off_shift"
