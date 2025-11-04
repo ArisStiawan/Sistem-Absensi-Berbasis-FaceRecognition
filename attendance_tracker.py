@@ -100,6 +100,53 @@ class AttendanceTracker:
         """Public method to get user's assigned shift for display purposes"""
         return self._get_assigned_shift(name)
     
+    def _get_final_status(self, user_assigned_shift: str, checkin_time: datetime) -> str:
+        """
+        Dapatkan status final absensi dengan mempertimbangkan assigned shift.
+        
+        Args:
+            user_assigned_shift: Shift yang terdaftar user ("morning" atau "night")
+            checkin_time: datetime saat check-in
+        
+        Returns:
+            str: "on_time", "late", atau "off_shift"
+        
+        Logic:
+            Morning user (assigned_shift="morning"):
+                - < 08:00 → on_time
+                - 08:00-16:59 → late
+                - >= 17:00 → off_shift
+            
+            Night user (assigned_shift="night"):
+                - < 16:00 → off_shift (pagi)
+                - 16:00-16:59 → on_time (early arrival)
+                - 17:00-21:59 → late
+                - >= 22:00 → off_shift
+        """
+        hour = checkin_time.hour
+        
+        if user_assigned_shift == "morning":
+            # Morning shift user
+            if hour < 8:
+                return "on_time"
+            elif hour < 17:
+                return "late"
+            else:
+                return "off_shift"
+        
+        elif user_assigned_shift == "night":
+            # Night shift user
+            if hour < 16:
+                return "off_shift"
+            elif hour < 17:
+                return "on_time"
+            elif hour < 22:
+                return "late"
+            else:
+                return "off_shift"
+        
+        return "off_shift"
+    
     def _reset_daily_records(self, name):
         """Reset daily records if it's a new day"""
         current_date = datetime.now().date()
@@ -176,12 +223,8 @@ class AttendanceTracker:
                     writer = csv.writer(f)
                     writer.writerow(["Name", "Time", "Date", "Shift", "Status"])
             
-            # Determine status based on assigned shift and current time
-            current_shift = self._get_current_shift()
-            if assigned_shift == current_shift:
-                status = "on_time"  # User is checking in during their assigned shift
-            else:
-                status = "off_shift"  # User is checking in outside their assigned shift
+            # Determine status based on assigned shift and current time using proper logic
+            status = self._get_final_status(assigned_shift, now)
             
             # Record the attendance with assigned shift
             with open(attendance_file, 'a', newline='') as f:

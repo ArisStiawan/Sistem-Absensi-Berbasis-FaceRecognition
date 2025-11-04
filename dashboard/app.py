@@ -284,13 +284,36 @@ def get_today_attendance():
         return pd.DataFrame(columns=['employee_name', 'check_in', 'check_out', 'assigned_shift', 'actual_shift', 'status'])
 
 def get_all_attendance():
+    """Get all attendance records from CSV files"""
     try:
-        response = api_call("/attendance/all")
-        if response and 'data' in response:
-            return pd.DataFrame(response['data'])
+        from pages.attendance import safe_read_attendance_csv, validate_attendance_dataframe
+        
+        attendance_dir = Path(__file__).parent.parent / "Attendance_Entry"
+        if not attendance_dir.exists():
+            return pd.DataFrame()
+        
+        all_records = []
+        
+        # Read all CSV files in Attendance_Entry directory
+        for csv_file in sorted(attendance_dir.glob("Attendance_*.csv")):
+            try:
+                df = safe_read_attendance_csv(csv_file)
+                if df is not None and not df.empty:
+                    df = validate_attendance_dataframe(df)
+                    all_records.append(df)
+            except Exception as e:
+                print(f"Error reading {csv_file.name}: {e}")
+                continue
+        
+        if all_records:
+            result_df = pd.concat(all_records, ignore_index=True)
+            # Normalize column names to lowercase
+            result_df.columns = result_df.columns.str.lower()
+            return result_df
+        
         return pd.DataFrame()
     except Exception as e:
-        st.error(f"Failed to fetch attendance data: {str(e)}")
+        print(f"Error in get_all_attendance: {e}")
         return pd.DataFrame()
 
 def get_registered_users():
@@ -562,7 +585,7 @@ def show_daily_statistics():
     col1, col2 = st.columns([1, 1])
     
     def prepare_attendance_data(df):
-        """Prepare attendance data by converting date/time columns, filter out invalid date rows"""
+        """Prepare attendance data by converting date/time columns, filter out invalid date rows, and normalize status column"""
         import pandas as pd
         try:
             # Normalize column names
@@ -570,19 +593,22 @@ def show_daily_statistics():
                 df = df.rename(columns={'Date': 'date'})
             if 'Time' in df.columns and 'time' not in df.columns:
                 df = df.rename(columns={'Time': 'time'})
-
+            if 'Status' in df.columns and 'status' not in df.columns:
+                df = df.rename(columns={'Status': 'status'})
             # Filter only rows where 'date' looks like a date (YYYY-MM-DD or YY_MM_DD)
             if 'date' in df.columns:
                 # Only keep rows where date matches a date pattern
                 df = df[df['date'].astype(str).str.match(r'^(\d{4}-\d{2}-\d{2}|\d{2}_\d{2}_\d{2})$')]
                 df['date'] = pd.to_datetime(df['date'], errors='coerce')
                 df = df[df['date'].notna()]
-
             # Convert time column if exists
             if 'time' in df.columns:
                 # Only keep rows where time looks like HH:MM:SS
                 df = df[df['time'].astype(str).str.match(r'^\d{1,2}:\d{2}:\d{2}$')]
                 df['time'] = pd.to_datetime(df['time'], errors='coerce').dt.time
+            # Normalize status column to lowercase
+            if 'status' in df.columns:
+                df['status'] = df['status'].astype(str).str.lower()
             return df, None
         except Exception as e:
             return None, str(e)
@@ -760,30 +786,30 @@ def show_daily_statistics():
             
         # Show weekly summary
         st.subheader("Rekap Mingguan")
-        
+        # Normalize status column to lowercase for consistency
+        if 'status' in df.columns:
+            df['status'] = df['status'].astype(str).str.lower()
         # Get current week dates
         today = datetime.now()
         start_of_week = today - timedelta(days=today.weekday())
         dates_of_week = [(start_of_week + timedelta(days=x)).date() for x in range(7)]
-        
         # Create weekly summary
         weekly_data = []
         for date in dates_of_week:
             day_data = df[df[date_column].dt.date == date]
-            
             # Calculate statistics
             total_attendance = len(day_data)
             on_time = len(day_data[day_data['status'] == 'on_time']) if 'status' in day_data.columns else 0
             late = len(day_data[day_data['status'] == 'late']) if 'status' in day_data.columns else 0
-            
+            off_shift = len(day_data[day_data['status'] == 'off_shift']) if 'status' in day_data.columns else 0
             weekly_data.append({
                 'Tanggal': date.strftime('%d %b %Y'),
                 'Hari': ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'][date.weekday()],
                 'Total Hadir': total_attendance,
                 'Tepat Waktu': on_time,
-                'Terlambat': late
+                'Terlambat': late,
+                'Off Shift': off_shift
             })
-        
         # Display weekly summary
         weekly_df = pd.DataFrame(weekly_data)
         st.dataframe(
@@ -793,9 +819,10 @@ def show_daily_statistics():
                 'Hari': st.column_config.TextColumn('Hari', width=500),
                 'Total Hadir': st.column_config.NumberColumn('Total Hadir', format='%d'),
                 'Tepat Waktu': st.column_config.NumberColumn('Tepat Waktu', format='%d'),
-                'Terlambat': st.column_config.NumberColumn('Terlambat', format='%d')
+                'Terlambat': st.column_config.NumberColumn('Terlambat', format='%d'),
+                'Off Shift': st.column_config.NumberColumn('Off Shift', format='%d')
             },
-            width=900,
+            width=1000,
             hide_index=True
         )
         
@@ -882,90 +909,6 @@ def check_user_exists(name: str) -> bool:
     user_folder = attendance_dir / name
     
     return user_file.exists() or user_folder.exists()
-
-def prepare_registration(user_data: dict) -> Tuple[bool, str, subprocess.Popen]:
-    """
-    Prepare and start the registration process
-    Returns: (success, message, process)
-    """
-    try:
-        script_path = Path(__file__).parent.parent / "initial_data_capture.py"
-        
-        # Validasi script exists
-        if not script_path.exists():
-            return False, f"❌ Script registrasi tidak ditemukan di: {script_path}", None
-            
-        # Cek user exists
-        if check_user_exists(user_data['name']):
-            return False, f"❌ User dengan nama '{user_data['name']}' sudah terdaftar!", None
-            
-        # Siapkan command dengan pipe agar bisa capture output
-        process = subprocess.Popen(
-            [sys.executable, str(script_path), user_data['name']],
-            stdout=subprocess.PIPE, 
-            stderr=subprocess.PIPE,
-            universal_newlines=True)
-            
-        # Tunggu sebentar untuk memastikan process mulai
-        time.sleep(1)
-        
-        if process.poll() is not None:  # Process gagal dimulai
-            return False, "❌ Gagal memulai proses registrasi", None
-            
-        return True, "✅ Proses registrasi dimulai!", process
-        
-    except Exception as e:
-        return False, f"❌ Error: {str(e)}", None
-
-def get_registration_status(process: subprocess.Popen) -> Tuple[bool, str]:
-    """
-    Check registration process status from running process
-    Returns: (is_running, status_message)
-    """
-    if not process:
-        return False, "❌ Process tidak ditemukan"
-        
-    # Cek apakah process masih berjalan
-    if process.poll() is None:
-        # Coba baca output terakhir
-        try:
-            # Baca output tanpa blocking
-            stdout = process.stdout.readline().strip()
-            stderr = process.stderr.readline().strip()
-            
-            # Update status based on output
-            if stdout:
-                if "center image captured" in stdout.lower():
-                    return True, "✅ Foto tengah berhasil diambil"
-                elif "left image captured" in stdout.lower():
-                    return True, "✅ Foto kiri berhasil diambil"
-                elif "right image captured" in stdout.lower():
-                    return True, "✅ Foto kanan berhasil diambil"
-                elif "Look at CENTER" in stdout:
-                    return True, "🎯 Lihat ke tengah"
-                elif "TURN LEFT" in stdout:
-                    return True, "👈 Hadap ke kiri"
-                elif "TURN RIGHT" in stdout:
-                    return True, "👉 Hadap ke kanan"
-                elif "Get ready" in stdout:
-                    return True, "⏳ Bersiap untuk foto..."
-                elif "All images captured" in stdout:
-                    return False, "✅ Registrasi berhasil!"
-                else:
-                    return True, stdout
-            
-            # Cek error
-            if stderr:
-                return False, f"❌ Error: {stderr}"
-                
-            # Process masih jalan tapi tidak ada output baru
-            return True, "⏳ Memproses..."
-            
-        except Exception as e:
-            # Masih jalan tapi tidak bisa baca output
-            return True, "⏳ Memproses..."
-            
-
 
 
 
